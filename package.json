@@ -1,0 +1,90 @@
+{
+  "name": "apex-editor",
+  "displayName": "Apex Editor",
+  "description": "Multi-tab Apex editor for Salesforce with quick anonymous Apex execution against any authenticated org.",
+  "version": "0.1.0",
+  "publisher": "Skrety",
+  "keywords": [
+    "salesforce",
+    "apex",
+    "sf",
+    "sfdx",
+    "anonymous apex",
+    "crm"
+  ],
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onView:apexEditor.panel"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "apex-editor",
+          "title": "Apex Editor",
+          "icon": "$(zap)"
+        }
+      ]
+    },
+    "views": {
+      "apex-editor": [
+        {
+          "type": "webview",
+          "id": "apexEditor.panel",
+          "name": "Apex Scripts"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "apexEditor.execute",
+        "title": "Apex: Execute Active Script",
+        "icon": "$(play)"
+      },
+      {
+        "command": "apexEditor.selectOrg",
+        "title": "Apex: Select Org"
+      },
+      {
+        "command": "apexEditor.newTab",
+        "title": "Apex: New Script Tab",
+        "icon": "$(add)"
+      }
+    ],
+    "configuration": {
+      "title": "Apex Editor",
+      "properties": {
+        "apexEditor.executeTimeoutMs": {
+          "type": "number",
+          "default": 60000,
+          "minimum": 5000,
+          "maximum": 300000,
+          "description": "Timeout in milliseconds for anonymous Apex execution."
+        },
+        "apexEditor.apiVersion": {
+          "type": "string",
+          "default": "60.0",
+          "description": "Salesforce API version used for Tooling API calls."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./ && node ./scripts/copy-panel-js.mjs",
+    "watch": "tsc -watch -p ./",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/vscode": "^1.105.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}
