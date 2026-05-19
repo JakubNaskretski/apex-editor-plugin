@@ -1,6 +1,7 @@
 .vscode/**
 .vscode-test/**
 src/**
+scripts/**
 .gitignore
 .github/**
 tsconfig.json
@@ -11,3 +12,4 @@ node_modules/**
 **/.eslintrc.json
 commitlint.config.js
 CONTRIBUTING.md
+.claude/**

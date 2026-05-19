@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string): string {
+export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string, location: 'sidebar' | 'panel' = 'sidebar'): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'panel.js'));
   const csp = [
     `default-src 'none'`,
@@ -92,9 +92,9 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       color: var(--vscode-foreground);
     }
     .editor {
-      flex: 1 1 60%;
+      flex: 1 1 0;
       display: flex;
-      min-height: 120px;
+      min-height: 100px;
     }
     .editor textarea {
       flex: 1;
@@ -113,12 +113,11 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       tab-size: 4;
     }
     .output {
-      flex: 1 1 40%;
+      flex: 0 0 auto;
       border-top: 1px solid var(--vscode-panel-border);
       display: flex;
       flex-direction: column;
-      min-height: 80px;
-      max-height: 50%;
+      max-height: 35%;
       overflow: hidden;
     }
     .output-header {
@@ -131,9 +130,9 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
+      flex-shrink: 0;
     }
     .output-body {
-      flex: 1;
       overflow: auto;
       padding: 8px;
       font-family: var(--vscode-editor-font-family, monospace);
@@ -141,13 +140,148 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       white-space: pre-wrap;
       word-break: break-word;
     }
+    .output-body.hidden { display: none; }
     .status-ok { color: var(--vscode-testing-iconPassed, #2ea043); }
     .status-err { color: var(--vscode-testing-iconFailed, #f85149); }
     .status-warn { color: var(--vscode-editorWarning-foreground, #d29922); }
     .empty { opacity: 0.6; font-style: italic; }
+    .log-viewer {
+      flex: 1 1 0;
+      border-top: 1px solid var(--vscode-panel-border);
+      display: flex;
+      flex-direction: column;
+      min-height: 80px;
+      overflow: hidden;
+    }
+    .log-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 8px;
+      background: var(--vscode-panel-background);
+      border-bottom: 1px solid var(--vscode-panel-border);
+      font-size: 11px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .log-title {
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-right: 4px;
+    }
+    .log-filter {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .log-filter input[type="checkbox"] { cursor: pointer; margin: 0; }
+    .log-body {
+      flex: 1;
+      overflow: auto;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 12px;
+      padding: 4px 0;
+    }
+    .log-entry {
+      padding: 2px 8px;
+      line-height: 1.4;
+    }
+    .log-entry:hover { background: var(--vscode-list-hoverBackground); }
+    .log-entry-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .log-time {
+      color: var(--vscode-descriptionForeground);
+      font-size: 10px;
+      margin-left: auto;
+    }
+    .log-type {
+      font-weight: 600;
+      font-size: 11px;
+    }
+    .log-line {
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+    }
+    .log-msg {
+      padding-left: 8px;
+      word-break: break-word;
+      white-space: pre-wrap;
+      color: var(--vscode-foreground);
+    }
+    .log-cat-USER_DEBUG .log-type { color: var(--vscode-debugConsole-infoForeground, #3794ff); }
+    .log-cat-SOQL .log-type { color: var(--vscode-editorWarning-foreground, #d29922); }
+    .log-cat-DML .log-type { color: var(--vscode-charts-purple, #9d4edd); }
+    .log-cat-EXCEPTION .log-type { color: var(--vscode-testing-iconFailed, #f85149); }
+    .log-cat-SYSTEM .log-type { color: var(--vscode-descriptionForeground, #8b8b8b); }
+    body[data-location="panel"] .toolbar {
+      border-top: 2px solid var(--vscode-focusBorder, #007acc);
+    }
+    body[data-location="panel"] #run-btn {
+      background: var(--vscode-focusBorder, #007acc);
+      color: #fff;
+    }
+    /* Command log */
+    .cmd-log {
+      border-top: 1px solid var(--vscode-panel-border);
+      flex-shrink: 0;
+    }
+    .cmd-log-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--vscode-panel-background);
+      cursor: pointer;
+      font-size: 11px;
+      user-select: none;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .cmd-log-header:hover { background: var(--vscode-list-hoverBackground); }
+    .cmd-chevron { font-style: normal; font-size: 9px; }
+    .cmd-count {
+      background: var(--vscode-badge-background, #4d4d4d);
+      color: var(--vscode-badge-foreground, #fff);
+      border-radius: 10px;
+      padding: 0 5px;
+      font-size: 10px;
+      min-width: 16px;
+      text-align: center;
+    }
+    .cmd-log-body {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+      max-height: 140px;
+      overflow: auto;
+    }
+    .cmd-log-body.hidden { display: none; }
+    .cmd-entry {
+      padding: 3px 8px 4px;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    .cmd-entry:last-child { border-bottom: none; }
+    .cmd-entry-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .cmd-ok { color: var(--vscode-testing-iconPassed, #2ea043); }
+    .cmd-err { color: var(--vscode-testing-iconFailed, #f85149); }
+    .cmd-time { color: var(--vscode-descriptionForeground); font-size: 10px; }
+    .cmd-duration { color: var(--vscode-descriptionForeground); font-size: 10px; margin-left: auto; }
+    .cmd-line {
+      margin-top: 2px;
+      color: var(--vscode-foreground);
+      word-break: break-all;
+    }
   </style>
 </head>
-<body>
+<body data-location="${location}">
   <div class="toolbar">
     <select id="org-select" title="Selected org"></select>
     <button id="refresh-orgs" title="Refresh org list">&#x21bb;</button>
@@ -161,7 +295,28 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
     <div class="output-header">
       <span id="output-status" class="empty">No execution yet</span>
     </div>
-    <div class="output-body" id="output-body"></div>
+    <div class="output-body hidden" id="output-body"></div>
+  </div>
+  <div class="log-viewer">
+    <div class="log-header">
+      <span class="log-title">Log</span>
+      <label class="log-filter"><input type="checkbox" data-cat="USER_DEBUG" checked> USER_DEBUG</label>
+      <label class="log-filter"><input type="checkbox" data-cat="SOQL" checked> SOQL</label>
+      <label class="log-filter"><input type="checkbox" data-cat="DML" checked> DML</label>
+      <label class="log-filter"><input type="checkbox" data-cat="EXCEPTION" checked> EXCEPTION</label>
+      <label class="log-filter"><input type="checkbox" data-cat="SYSTEM"> SYSTEM</label>
+    </div>
+    <div class="log-body" id="log-body">
+      <span class="empty" style="padding: 8px; display: block;">No execution yet</span>
+    </div>
+  </div>
+  <div class="cmd-log">
+    <div class="cmd-log-header" id="cmd-log-toggle">
+      <span class="cmd-chevron" id="cmd-chevron">&#x25b6;</span>
+      <span>Commands</span>
+      <span class="cmd-count" id="cmd-count">0</span>
+    </div>
+    <div class="cmd-log-body hidden" id="cmd-log-body"></div>
   </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

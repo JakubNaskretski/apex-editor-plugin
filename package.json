@@ -4,6 +4,15 @@
   "description": "Multi-tab Apex editor for Salesforce with quick anonymous Apex execution against any authenticated org.",
   "version": "0.1.0",
   "publisher": "Skrety",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JakubNaskretski/apex-editor-plugin"
+  },
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
   "keywords": [
     "salesforce",
     "apex",
@@ -18,15 +27,20 @@
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [
-    "onView:apexEditor.panel"
-  ],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
           "id": "apex-editor",
+          "title": "Apex Editor",
+          "icon": "$(zap)"
+        }
+      ],
+      "panel": [
+        {
+          "id": "apex-editor-panel",
           "title": "Apex Editor",
           "icon": "$(zap)"
         }
@@ -37,6 +51,13 @@
         {
           "type": "webview",
           "id": "apexEditor.panel",
+          "name": "Apex Scripts"
+        }
+      ],
+      "apex-editor-panel": [
+        {
+          "type": "webview",
+          "id": "apexEditor.panelView",
           "name": "Apex Scripts"
         }
       ]
@@ -84,6 +105,8 @@
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@types/vscode": "^1.105.0",
+    "esbuild": "^0.28.0",
+    "monaco-editor": "^0.55.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
   }

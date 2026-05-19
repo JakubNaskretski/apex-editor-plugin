@@ -10,10 +10,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const tabs = new TabManager(context.workspaceState);
   const orgStore = new OrgStore(context.globalState);
   const provider = new ApexPanelProvider(context, tabs, orgStore, sf, output);
+  const panelProvider = new ApexPanelProvider(context, tabs, orgStore, sf, output, 'panel');
 
   context.subscriptions.push(
     output,
     vscode.window.registerWebviewViewProvider(ApexPanelProvider.viewType, provider),
+    vscode.window.registerWebviewViewProvider(ApexPanelProvider.viewTypePanel, panelProvider),
     vscode.commands.registerCommand('apexEditor.execute', () => provider.executeActive()),
     vscode.commands.registerCommand('apexEditor.selectOrg', () => provider.pickOrg()),
     vscode.commands.registerCommand('apexEditor.newTab', () => provider.newTab())
