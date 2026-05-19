@@ -6,26 +6,83 @@
   const refreshBtn = document.getElementById('refresh-orgs');
   const runBtn = document.getElementById('run-btn');
   const tabsEl = document.getElementById('tabs');
-  const codeEl = document.getElementById('code');
   const outputBody = document.getElementById('output-body');
   const outputStatus = document.getElementById('output-status');
   const logBody = document.getElementById('log-body');
+  const cmdLogToggle = document.getElementById('cmd-log-toggle');
+  const cmdLogBody = document.getElementById('cmd-log-body');
+  const cmdCount = document.getElementById('cmd-count');
+  const cmdChevron = document.getElementById('cmd-chevron');
 
   let state = { tabs: [], activeTabId: null };
   let orgs = { orgs: [], selected: null };
   let suppressCodeEvent = false;
   let currentLogEntries = [];
+  let cmdHistory = [];
+  let cmdLogOpen = false;
   const activeFilters = new Set(['USER_DEBUG', 'SOQL', 'DML', 'EXCEPTION']);
 
+  // --- Monaco editor ---
+  function getMonacoTheme() {
+    if (document.body.classList.contains('vscode-dark')) { return 'vs-dark'; }
+    if (document.body.classList.contains('vscode-high-contrast')) { return 'hc-black'; }
+    return 'vs';
+  }
+  const editorFontFamily = getComputedStyle(document.body)
+    .getPropertyValue('--vscode-editor-font-family').trim() || 'monospace';
+  const editorFontSize = parseInt(
+    getComputedStyle(document.body).getPropertyValue('--vscode-editor-font-size'), 10
+  ) || 13;
+
+  const editor = window.monaco.editor.create(document.getElementById('code'), {
+    language: 'apex',
+    theme: getMonacoTheme(),
+    fontFamily: editorFontFamily,
+    fontSize: editorFontSize,
+    lineHeight: Math.round(1.4 * editorFontSize),
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    wordWrap: 'on',
+    automaticLayout: true,
+    renderLineHighlight: 'line',
+    cursorBlinking: 'smooth',
+    padding: { top: 8, bottom: 8 },
+    lineNumbers: 'on',
+    glyphMargin: false,
+    folding: true,
+    tabSize: 4,
+    insertSpaces: true,
+    fixedOverflowWidgets: true,
+  });
+
+  new MutationObserver(() => {
+    window.monaco.editor.setTheme(getMonacoTheme());
+  }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+  editor.addCommand(
+    window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.Enter,
+    () => post({ type: 'execute' })
+  );
+
+  editor.onDidChangeModelContent(() => {
+    if (suppressCodeEvent || !state.activeTabId) { return; }
+    post({ type: 'updateCode', tabId: state.activeTabId, code: editor.getValue() });
+  });
+
+  // --- Log filter checkboxes ---
   document.querySelectorAll('.log-header input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => {
-      if (cb.checked) {
-        activeFilters.add(cb.dataset.cat);
-      } else {
-        activeFilters.delete(cb.dataset.cat);
-      }
+      if (cb.checked) { activeFilters.add(cb.dataset.cat); }
+      else { activeFilters.delete(cb.dataset.cat); }
       renderLogEntries();
     });
+  });
+
+  // --- Command log toggle ---
+  cmdLogToggle.addEventListener('click', () => {
+    cmdLogOpen = !cmdLogOpen;
+    cmdLogBody.classList.toggle('hidden', !cmdLogOpen);
+    cmdChevron.innerHTML = cmdLogOpen ? '&#x25bc;' : '&#x25b6;';
   });
 
   function post(message) {
@@ -49,9 +106,7 @@
       const opt = document.createElement('option');
       opt.value = org.username;
       opt.textContent = org.label;
-      if (org.username === orgs.selected) {
-        opt.selected = true;
-      }
+      if (org.username === orgs.selected) { opt.selected = true; }
       orgSelect.appendChild(opt);
     }
   }
@@ -78,10 +133,7 @@
         sel.addRange(range);
       });
       title.addEventListener('keydown', e => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          title.blur();
-        }
+        if (e.key === 'Enter') { e.preventDefault(); title.blur(); }
       });
       title.addEventListener('blur', () => {
         title.contentEditable = 'false';
@@ -105,9 +157,7 @@
       el.appendChild(title);
       el.appendChild(close);
       el.addEventListener('click', () => {
-        if (tab.id !== state.activeTabId) {
-          post({ type: 'selectTab', tabId: tab.id });
-        }
+        if (tab.id !== state.activeTabId) { post({ type: 'selectTab', tabId: tab.id }); }
       });
       tabsEl.appendChild(el);
     }
@@ -123,7 +173,7 @@
   function renderActiveCode() {
     const active = state.tabs.find(t => t.id === state.activeTabId);
     suppressCodeEvent = true;
-    codeEl.value = active ? active.code : '';
+    editor.setValue(active ? active.code : '');
     suppressCodeEvent = false;
   }
 
@@ -141,12 +191,8 @@
       setStatus('Success', 'status-ok');
     }
     const parts = [];
-    if (result.exceptionMessage) {
-      parts.push(`Exception: ${result.exceptionMessage}`);
-    }
-    if (result.exceptionStackTrace) {
-      parts.push(`Stack:\n${result.exceptionStackTrace}`);
-    }
+    if (result.exceptionMessage) { parts.push(`Exception: ${result.exceptionMessage}`); }
+    if (result.exceptionStackTrace) { parts.push(`Stack:\n${result.exceptionStackTrace}`); }
     if (parts.length > 0) {
       outputBody.textContent = parts.join('\n\n');
       outputBody.classList.remove('hidden');
@@ -206,27 +252,48 @@
     logBody.scrollTop = logBody.scrollHeight;
   }
 
-  orgSelect.addEventListener('change', () => {
-    if (orgSelect.value) {
-      post({ type: 'selectOrg', username: orgSelect.value });
+  function renderCmdLog() {
+    cmdCount.textContent = cmdHistory.length;
+    cmdLogBody.innerHTML = '';
+    for (const entry of cmdHistory) {
+      const el = document.createElement('div');
+      el.className = 'cmd-entry';
+
+      const meta = document.createElement('div');
+      meta.className = 'cmd-entry-meta';
+
+      const status = document.createElement('span');
+      status.className = entry.success ? 'cmd-ok' : 'cmd-err';
+      status.textContent = entry.success ? '✓' : '✗';
+
+      const time = document.createElement('span');
+      time.className = 'cmd-time';
+      time.textContent = entry.timestamp;
+
+      const dur = document.createElement('span');
+      dur.className = 'cmd-duration';
+      dur.textContent = entry.durationMs + 'ms';
+
+      meta.appendChild(status);
+      meta.appendChild(time);
+      meta.appendChild(dur);
+
+      const cmd = document.createElement('div');
+      cmd.className = 'cmd-line';
+      cmd.textContent = entry.command;
+
+      el.appendChild(meta);
+      el.appendChild(cmd);
+      cmdLogBody.appendChild(el);
     }
+    if (cmdLogOpen) { cmdLogBody.scrollTop = cmdLogBody.scrollHeight; }
+  }
+
+  orgSelect.addEventListener('change', () => {
+    if (orgSelect.value) { post({ type: 'selectOrg', username: orgSelect.value }); }
   });
   refreshBtn.addEventListener('click', () => post({ type: 'refreshOrgs' }));
   runBtn.addEventListener('click', () => post({ type: 'execute' }));
-
-  codeEl.addEventListener('input', () => {
-    if (suppressCodeEvent || !state.activeTabId) {
-      return;
-    }
-    post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value });
-  });
-
-  codeEl.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      post({ type: 'execute' });
-    }
-  });
 
   window.addEventListener('message', event => {
     const msg = event.data;
@@ -259,6 +326,10 @@
         setStatus('Error', 'status-err');
         outputBody.textContent = msg.message;
         outputBody.classList.remove('hidden');
+        break;
+      case 'cmdLog':
+        cmdHistory.push(msg.entry);
+        renderCmdLog();
         break;
     }
   });

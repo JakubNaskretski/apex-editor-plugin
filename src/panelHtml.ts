@@ -2,11 +2,14 @@ import * as vscode from 'vscode';
 
 export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string, location: 'sidebar' | 'panel' = 'sidebar'): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'panel.js'));
+  const monacoBundleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'monaco-bundle.js'));
+  const monacoCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'monaco-editor.css'));
+
   const csp = [
     `default-src 'none'`,
     `style-src ${webview.cspSource} 'unsafe-inline'`,
-    `script-src 'nonce-${nonce}'`,
-    `font-src ${webview.cspSource}`,
+    `script-src 'nonce-${nonce}' 'unsafe-eval'`,
+    `font-src ${webview.cspSource} data:`,
     `img-src ${webview.cspSource} data:`
   ].join('; ');
 
@@ -16,6 +19,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <title>Apex Editor</title>
+  <link rel="stylesheet" href="${monacoCssUri}" />
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -95,23 +99,10 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       flex: 1 1 0;
       display: flex;
       min-height: 100px;
+      overflow: hidden;
+      position: relative;
     }
-    .editor textarea {
-      flex: 1;
-      width: 100%;
-      height: 100%;
-      box-sizing: border-box;
-      padding: 8px;
-      border: 0;
-      outline: none;
-      resize: none;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
-      font-family: var(--vscode-editor-font-family, monospace);
-      font-size: var(--vscode-editor-font-size, 13px);
-      line-height: 1.4;
-      tab-size: 4;
-    }
+    #code { flex: 1; width: 100%; }
     .output {
       flex: 0 0 auto;
       border-top: 1px solid var(--vscode-panel-border);
@@ -225,6 +216,60 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       background: var(--vscode-focusBorder, #007acc);
       color: #fff;
     }
+    /* Command log */
+    .cmd-log {
+      border-top: 1px solid var(--vscode-panel-border);
+      flex-shrink: 0;
+    }
+    .cmd-log-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--vscode-panel-background);
+      cursor: pointer;
+      font-size: 11px;
+      user-select: none;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .cmd-log-header:hover { background: var(--vscode-list-hoverBackground); }
+    .cmd-chevron { font-style: normal; font-size: 9px; }
+    .cmd-count {
+      background: var(--vscode-badge-background, #4d4d4d);
+      color: var(--vscode-badge-foreground, #fff);
+      border-radius: 10px;
+      padding: 0 5px;
+      font-size: 10px;
+      min-width: 16px;
+      text-align: center;
+    }
+    .cmd-log-body {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+      max-height: 140px;
+      overflow: auto;
+    }
+    .cmd-log-body.hidden { display: none; }
+    .cmd-entry {
+      padding: 3px 8px 4px;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    .cmd-entry:last-child { border-bottom: none; }
+    .cmd-entry-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .cmd-ok { color: var(--vscode-testing-iconPassed, #2ea043); }
+    .cmd-err { color: var(--vscode-testing-iconFailed, #f85149); }
+    .cmd-time { color: var(--vscode-descriptionForeground); font-size: 10px; }
+    .cmd-duration { color: var(--vscode-descriptionForeground); font-size: 10px; margin-left: auto; }
+    .cmd-line {
+      margin-top: 2px;
+      color: var(--vscode-foreground);
+      word-break: break-all;
+    }
   </style>
 </head>
 <body data-location="${location}">
@@ -235,7 +280,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
   </div>
   <div class="tabs" id="tabs"></div>
   <div class="editor">
-    <textarea id="code" spellcheck="false" placeholder="// Anonymous Apex&#10;System.debug('Hello from Apex Editor');"></textarea>
+    <div id="code"></div>
   </div>
   <div class="output">
     <div class="output-header">
@@ -256,6 +301,15 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       <span class="empty" style="padding: 8px; display: block;">No execution yet</span>
     </div>
   </div>
+  <div class="cmd-log">
+    <div class="cmd-log-header" id="cmd-log-toggle">
+      <span class="cmd-chevron" id="cmd-chevron">&#x25b6;</span>
+      <span>Commands</span>
+      <span class="cmd-count" id="cmd-count">0</span>
+    </div>
+    <div class="cmd-log-body hidden" id="cmd-log-body"></div>
+  </div>
+  <script nonce="${nonce}" src="${monacoBundleUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

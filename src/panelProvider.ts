@@ -172,18 +172,39 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     const apiVersion = config.get<string>('apiVersion', '60.0');
     this.post({ type: 'execStart' });
     this.output.appendLine(`[exec] Running anonymous Apex against ${username}...`);
+    const start = Date.now();
     try {
       await this.traceService.ensureTraceFlag(username, apiVersion);
       const result = await this.sf.executeAnonymous(code, username, timeout);
+      const durationMs = Date.now() - start;
       this.output.appendLine(this.formatResult(result));
       this.post({ type: 'execResult', result, logEntries: parseLogs(result.logs) });
+      this.post({
+        type: 'cmdLog',
+        entry: {
+          timestamp: new Date().toLocaleTimeString(),
+          command: `sf apex run --target-org ${username}`,
+          durationMs,
+          success: result.compiled && result.success,
+        }
+      });
     } catch (err) {
+      const durationMs = Date.now() - start;
       const message = err instanceof Error ? err.message : String(err);
       this.output.appendLine(`[exec] Error: ${message}`);
       if (err instanceof SfCliError && err.stderr) {
         this.output.appendLine(err.stderr);
       }
       this.post({ type: 'execError', message });
+      this.post({
+        type: 'cmdLog',
+        entry: {
+          timestamp: new Date().toLocaleTimeString(),
+          command: `sf apex run --target-org ${username}`,
+          durationMs,
+          success: false,
+        }
+      });
     }
   }
 
