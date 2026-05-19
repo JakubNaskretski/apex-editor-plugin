@@ -2,14 +2,11 @@ import * as vscode from 'vscode';
 
 export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string, location: 'sidebar' | 'panel' = 'sidebar'): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'panel.js'));
-  const monacoBundleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'monaco-bundle.js'));
-  const monacoCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'monaco-editor.css'));
-
   const csp = [
     `default-src 'none'`,
     `style-src ${webview.cspSource} 'unsafe-inline'`,
-    `script-src 'nonce-${nonce}' 'unsafe-eval'`,
-    `font-src ${webview.cspSource} data:`,
+    `script-src 'nonce-${nonce}'`,
+    `font-src ${webview.cspSource}`,
     `img-src ${webview.cspSource} data:`
   ].join('; ');
 
@@ -19,7 +16,6 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <title>Apex Editor</title>
-  <link rel="stylesheet" href="${monacoCssUri}" />
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -99,10 +95,23 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       flex: 1 1 0;
       display: flex;
       min-height: 100px;
-      overflow: hidden;
-      position: relative;
     }
-    #code { flex: 1; width: 100%; }
+    .editor textarea {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      border: 0;
+      outline: none;
+      resize: none;
+      background: var(--vscode-editor-background);
+      color: var(--vscode-editor-foreground);
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: var(--vscode-editor-font-size, 13px);
+      line-height: 1.4;
+      tab-size: 4;
+    }
     .output {
       flex: 0 0 auto;
       border-top: 1px solid var(--vscode-panel-border);
@@ -280,7 +289,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
   </div>
   <div class="tabs" id="tabs"></div>
   <div class="editor">
-    <div id="code"></div>
+    <textarea id="code" spellcheck="false" placeholder="// Anonymous Apex&#10;System.debug('Hello from Apex Editor');"></textarea>
   </div>
   <div class="output">
     <div class="output-header">
@@ -309,7 +318,6 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
     </div>
     <div class="cmd-log-body hidden" id="cmd-log-body"></div>
   </div>
-  <script nonce="${nonce}" src="${monacoBundleUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

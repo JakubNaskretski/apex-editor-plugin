@@ -6,6 +6,7 @@
   const refreshBtn = document.getElementById('refresh-orgs');
   const runBtn = document.getElementById('run-btn');
   const tabsEl = document.getElementById('tabs');
+  const codeEl = document.getElementById('code');
   const outputBody = document.getElementById('output-body');
   const outputStatus = document.getElementById('output-status');
   const logBody = document.getElementById('log-body');
@@ -22,54 +23,6 @@
   let cmdLogOpen = false;
   const activeFilters = new Set(['USER_DEBUG', 'SOQL', 'DML', 'EXCEPTION']);
 
-  // --- Monaco editor ---
-  function getMonacoTheme() {
-    if (document.body.classList.contains('vscode-dark')) { return 'vs-dark'; }
-    if (document.body.classList.contains('vscode-high-contrast')) { return 'hc-black'; }
-    return 'vs';
-  }
-  const editorFontFamily = getComputedStyle(document.body)
-    .getPropertyValue('--vscode-editor-font-family').trim() || 'monospace';
-  const editorFontSize = parseInt(
-    getComputedStyle(document.body).getPropertyValue('--vscode-editor-font-size'), 10
-  ) || 13;
-
-  const editor = window.monaco.editor.create(document.getElementById('code'), {
-    language: 'apex',
-    theme: getMonacoTheme(),
-    fontFamily: editorFontFamily,
-    fontSize: editorFontSize,
-    lineHeight: Math.round(1.4 * editorFontSize),
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    wordWrap: 'on',
-    automaticLayout: true,
-    renderLineHighlight: 'line',
-    cursorBlinking: 'smooth',
-    padding: { top: 8, bottom: 8 },
-    lineNumbers: 'on',
-    glyphMargin: false,
-    folding: true,
-    tabSize: 4,
-    insertSpaces: true,
-    fixedOverflowWidgets: true,
-  });
-
-  new MutationObserver(() => {
-    window.monaco.editor.setTheme(getMonacoTheme());
-  }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
-  editor.addCommand(
-    window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.Enter,
-    () => post({ type: 'execute' })
-  );
-
-  editor.onDidChangeModelContent(() => {
-    if (suppressCodeEvent || !state.activeTabId) { return; }
-    post({ type: 'updateCode', tabId: state.activeTabId, code: editor.getValue() });
-  });
-
-  // --- Log filter checkboxes ---
   document.querySelectorAll('.log-header input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => {
       if (cb.checked) { activeFilters.add(cb.dataset.cat); }
@@ -78,7 +31,6 @@
     });
   });
 
-  // --- Command log toggle ---
   cmdLogToggle.addEventListener('click', () => {
     cmdLogOpen = !cmdLogOpen;
     cmdLogBody.classList.toggle('hidden', !cmdLogOpen);
@@ -173,7 +125,7 @@
   function renderActiveCode() {
     const active = state.tabs.find(t => t.id === state.activeTabId);
     suppressCodeEvent = true;
-    editor.setValue(active ? active.code : '');
+    codeEl.value = active ? active.code : '';
     suppressCodeEvent = false;
   }
 
@@ -294,6 +246,18 @@
   });
   refreshBtn.addEventListener('click', () => post({ type: 'refreshOrgs' }));
   runBtn.addEventListener('click', () => post({ type: 'execute' }));
+
+  codeEl.addEventListener('input', () => {
+    if (suppressCodeEvent || !state.activeTabId) { return; }
+    post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value });
+  });
+
+  codeEl.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      post({ type: 'execute' });
+    }
+  });
 
   window.addEventListener('message', event => {
     const msg = event.data;
