@@ -185,28 +185,34 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       padding: 4px 0;
     }
     .log-entry {
-      display: flex;
-      gap: 6px;
-      padding: 1px 8px;
-      align-items: baseline;
-      line-height: 1.5;
+      padding: 2px 8px;
+      line-height: 1.4;
     }
     .log-entry:hover { background: var(--vscode-list-hoverBackground); }
+    .log-entry-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
     .log-time {
       color: var(--vscode-descriptionForeground);
-      font-size: 11px;
-      flex-shrink: 0;
+      font-size: 10px;
+      margin-left: auto;
     }
     .log-type {
       font-weight: 600;
-      flex-shrink: 0;
+      font-size: 11px;
     }
     .log-line {
       color: var(--vscode-descriptionForeground);
       font-size: 11px;
-      flex-shrink: 0;
     }
-    .log-msg { flex: 1; word-break: break-word; white-space: pre-wrap; }
+    .log-msg {
+      padding-left: 8px;
+      word-break: break-word;
+      white-space: pre-wrap;
+      color: var(--vscode-foreground);
+    }
     .log-cat-USER_DEBUG .log-type { color: var(--vscode-debugConsole-infoForeground, #3794ff); }
     .log-cat-SOQL .log-type { color: var(--vscode-editorWarning-foreground, #d29922); }
     .log-cat-DML .log-type { color: var(--vscode-charts-purple, #9d4edd); }

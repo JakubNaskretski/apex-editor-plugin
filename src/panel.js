@@ -172,26 +172,30 @@
       const row = document.createElement('div');
       row.className = `log-entry log-cat-${entry.category}`;
 
-      const time = document.createElement('span');
-      time.className = 'log-time';
-      time.textContent = entry.timestamp;
+      const meta = document.createElement('div');
+      meta.className = 'log-entry-meta';
 
       const type = document.createElement('span');
       type.className = 'log-type';
       type.textContent = entry.eventType;
-
-      row.appendChild(time);
-      row.appendChild(type);
+      meta.appendChild(type);
 
       if (entry.lineRef) {
         const line = document.createElement('span');
         line.className = 'log-line';
         line.textContent = entry.lineRef;
-        row.appendChild(line);
+        meta.appendChild(line);
       }
 
+      const time = document.createElement('span');
+      time.className = 'log-time';
+      time.textContent = entry.timestamp;
+      meta.appendChild(time);
+
+      row.appendChild(meta);
+
       if (entry.message) {
-        const msg = document.createElement('span');
+        const msg = document.createElement('div');
         msg.className = 'log-msg';
         msg.textContent = entry.message;
         row.appendChild(msg);
