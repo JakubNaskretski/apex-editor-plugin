@@ -92,9 +92,9 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       color: var(--vscode-foreground);
     }
     .editor {
-      flex: 1 1 60%;
+      flex: 1 1 0;
       display: flex;
-      min-height: 120px;
+      min-height: 100px;
     }
     .editor textarea {
       flex: 1;
@@ -113,12 +113,11 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       tab-size: 4;
     }
     .output {
-      flex: 1 1 40%;
+      flex: 0 0 auto;
       border-top: 1px solid var(--vscode-panel-border);
       display: flex;
       flex-direction: column;
-      min-height: 80px;
-      max-height: 50%;
+      max-height: 35%;
       overflow: hidden;
     }
     .output-header {
@@ -131,9 +130,9 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
+      flex-shrink: 0;
     }
     .output-body {
-      flex: 1;
       overflow: auto;
       padding: 8px;
       font-family: var(--vscode-editor-font-family, monospace);
@@ -141,10 +140,78 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       white-space: pre-wrap;
       word-break: break-word;
     }
+    .output-body.hidden { display: none; }
     .status-ok { color: var(--vscode-testing-iconPassed, #2ea043); }
     .status-err { color: var(--vscode-testing-iconFailed, #f85149); }
     .status-warn { color: var(--vscode-editorWarning-foreground, #d29922); }
     .empty { opacity: 0.6; font-style: italic; }
+    .log-viewer {
+      flex: 1 1 0;
+      border-top: 1px solid var(--vscode-panel-border);
+      display: flex;
+      flex-direction: column;
+      min-height: 80px;
+      overflow: hidden;
+    }
+    .log-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 8px;
+      background: var(--vscode-panel-background);
+      border-bottom: 1px solid var(--vscode-panel-border);
+      font-size: 11px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .log-title {
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-right: 4px;
+    }
+    .log-filter {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .log-filter input[type="checkbox"] { cursor: pointer; margin: 0; }
+    .log-body {
+      flex: 1;
+      overflow: auto;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 12px;
+      padding: 4px 0;
+    }
+    .log-entry {
+      display: flex;
+      gap: 6px;
+      padding: 1px 8px;
+      align-items: baseline;
+      line-height: 1.5;
+    }
+    .log-entry:hover { background: var(--vscode-list-hoverBackground); }
+    .log-time {
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    .log-type {
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .log-line {
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    .log-msg { flex: 1; word-break: break-word; white-space: pre-wrap; }
+    .log-cat-USER_DEBUG .log-type { color: var(--vscode-debugConsole-infoForeground, #3794ff); }
+    .log-cat-SOQL .log-type { color: var(--vscode-editorWarning-foreground, #d29922); }
+    .log-cat-DML .log-type { color: var(--vscode-charts-purple, #9d4edd); }
+    .log-cat-EXCEPTION .log-type { color: var(--vscode-testing-iconFailed, #f85149); }
+    .log-cat-SYSTEM .log-type { color: var(--vscode-descriptionForeground, #8b8b8b); }
   </style>
 </head>
 <body>
@@ -161,7 +228,20 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
     <div class="output-header">
       <span id="output-status" class="empty">No execution yet</span>
     </div>
-    <div class="output-body" id="output-body"></div>
+    <div class="output-body hidden" id="output-body"></div>
+  </div>
+  <div class="log-viewer">
+    <div class="log-header">
+      <span class="log-title">Log</span>
+      <label class="log-filter"><input type="checkbox" data-cat="USER_DEBUG" checked> USER_DEBUG</label>
+      <label class="log-filter"><input type="checkbox" data-cat="SOQL" checked> SOQL</label>
+      <label class="log-filter"><input type="checkbox" data-cat="DML" checked> DML</label>
+      <label class="log-filter"><input type="checkbox" data-cat="EXCEPTION" checked> EXCEPTION</label>
+      <label class="log-filter"><input type="checkbox" data-cat="SYSTEM"> SYSTEM</label>
+    </div>
+    <div class="log-body" id="log-body">
+      <span class="empty" style="padding: 8px; display: block;">No execution yet</span>
+    </div>
   </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

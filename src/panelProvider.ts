@@ -3,6 +3,8 @@ import { OrgStore } from './orgStore';
 import { TabManager } from './tabManager';
 import { ApexExecuteResult, OrgInfo, SfCliError, SfCliService } from './sfCliService';
 import { generateNonce, getPanelHtml } from './panelHtml';
+import { parseLogs } from './logParser';
+import { TraceService } from './traceService';
 
 type InboundMessage =
   | { type: 'ready' }
@@ -24,6 +26,7 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   static readonly viewType = 'apexEditor.panel';
   private view?: vscode.WebviewView;
   private orgs: OrgInfo[] = [];
+  private readonly traceService: TraceService;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -33,6 +36,7 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     private readonly output: vscode.OutputChannel
   ) {
     this.tabs.onDidChange(() => this.postState());
+    this.traceService = new TraceService(sf);
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -161,13 +165,16 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   }
 
   private async runApex(code: string, username: string): Promise<void> {
-    const timeout = vscode.workspace.getConfiguration('apexEditor').get<number>('executeTimeoutMs', 60_000);
+    const config = vscode.workspace.getConfiguration('apexEditor');
+    const timeout = config.get<number>('executeTimeoutMs', 60_000);
+    const apiVersion = config.get<string>('apiVersion', '60.0');
     this.post({ type: 'execStart' });
     this.output.appendLine(`[exec] Running anonymous Apex against ${username}...`);
     try {
+      await this.traceService.ensureTraceFlag(username, apiVersion);
       const result = await this.sf.executeAnonymous(code, username, timeout);
       this.output.appendLine(this.formatResult(result));
-      this.post({ type: 'execResult', result });
+      this.post({ type: 'execResult', result, logEntries: parseLogs(result.logs) });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.output.appendLine(`[exec] Error: ${message}`);

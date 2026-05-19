@@ -22,6 +22,14 @@ export interface ApexExecuteResult {
   column: number;
 }
 
+export interface OrgDetails {
+  id: string;
+  accessToken: string;
+  instanceUrl: string;
+  username: string;
+  alias?: string;
+}
+
 export class SfCliError extends Error {
   constructor(message: string, public readonly stderr?: string, public readonly cause?: unknown) {
     super(message);
@@ -42,6 +50,13 @@ interface RunResult {
 
 export class SfCliService {
   private readonly defaultTimeoutMs = 60_000;
+
+  async getOrgDetails(targetOrg: string): Promise<OrgDetails> {
+    const json = await this.runJson<{ result: OrgDetails }>(
+      ['org', 'display', '--target-org', targetOrg, '--json']
+    );
+    return json.result;
+  }
 
   async listOrgs(): Promise<OrgInfo[]> {
     const result = await this.runJson<{
