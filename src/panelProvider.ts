@@ -24,6 +24,7 @@ interface OrgsPayload {
 
 export class ApexPanelProvider implements vscode.WebviewViewProvider {
   static readonly viewType = 'apexEditor.panel';
+  static readonly viewTypePanel = 'apexEditor.panelView';
   private view?: vscode.WebviewView;
   private orgs: OrgInfo[] = [];
   private readonly traceService: TraceService;

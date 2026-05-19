@@ -22,15 +22,20 @@
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [
-    "onView:apexEditor.panel"
-  ],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
           "id": "apex-editor",
+          "title": "Apex Editor",
+          "icon": "$(zap)"
+        }
+      ],
+      "panel": [
+        {
+          "id": "apex-editor-panel",
           "title": "Apex Editor",
           "icon": "$(zap)"
         }
@@ -41,6 +46,13 @@
         {
           "type": "webview",
           "id": "apexEditor.panel",
+          "name": "Apex Scripts"
+        }
+      ],
+      "apex-editor-panel": [
+        {
+          "type": "webview",
+          "id": "apexEditor.panelView",
           "name": "Apex Scripts"
         }
       ]
