@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string): string {
+export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string, location: 'sidebar' | 'panel' = 'sidebar'): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'panel.js'));
   const csp = [
     `default-src 'none'`,
@@ -218,9 +218,16 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
     .log-cat-DML .log-type { color: var(--vscode-charts-purple, #9d4edd); }
     .log-cat-EXCEPTION .log-type { color: var(--vscode-testing-iconFailed, #f85149); }
     .log-cat-SYSTEM .log-type { color: var(--vscode-descriptionForeground, #8b8b8b); }
+    body[data-location="panel"] .toolbar {
+      border-top: 2px solid var(--vscode-focusBorder, #007acc);
+    }
+    body[data-location="panel"] #run-btn {
+      background: var(--vscode-focusBorder, #007acc);
+      color: #fff;
+    }
   </style>
 </head>
-<body>
+<body data-location="${location}">
   <div class="toolbar">
     <select id="org-select" title="Selected org"></select>
     <button id="refresh-orgs" title="Refresh org list">&#x21bb;</button>

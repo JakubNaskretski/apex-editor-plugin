@@ -34,7 +34,8 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     private readonly tabs: TabManager,
     private readonly orgStore: OrgStore,
     private readonly sf: SfCliService,
-    private readonly output: vscode.OutputChannel
+    private readonly output: vscode.OutputChannel,
+    private readonly location: 'sidebar' | 'panel' = 'sidebar'
   ) {
     this.tabs.onDidChange(() => this.postState());
     this.traceService = new TraceService(sf);
@@ -46,7 +47,7 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'out')]
     };
-    view.webview.html = getPanelHtml(view.webview, this.context.extensionUri, generateNonce());
+    view.webview.html = getPanelHtml(view.webview, this.context.extensionUri, generateNonce(), this.location);
 
     view.webview.onDidReceiveMessage((message: InboundMessage) => this.handleMessage(message));
     view.onDidDispose(() => { this.view = undefined; });
