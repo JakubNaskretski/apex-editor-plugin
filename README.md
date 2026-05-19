@@ -1,18 +1,25 @@
 # Apex Editor
 
 A lightweight VS Code extension for running ad-hoc anonymous Apex against any
-authenticated Salesforce org, with a multi-tab scratch editor.
+authenticated Salesforce org — available both in the Activity Bar sidebar and
+the bottom panel (next to Terminal).
 
 ## Features
 
-- **Multi-tab editor** in the Activity Bar — each tab keeps its own Apex
-  source and persists across VS Code restarts (per workspace).
-- **Org switcher** — pick any org already authenticated with the Salesforce
-  CLI (`sf`); the selection is remembered globally and the default org is
-  pre-loaded on first run.
-- **One-click execution** — Run button (or `Ctrl+Enter` / `Cmd+Enter` in the
-  editor) executes the active tab as anonymous Apex and renders the result
-  (compile errors, exceptions, debug log) inline.
+- **Multi-tab editor** — each tab keeps its own Apex source and persists across
+  VS Code restarts (per workspace).
+- **Org switcher** — pick any org already authenticated with the Salesforce CLI
+  (`sf`); the default org is pre-selected on first launch.
+- **One-click execution** — Run button or `Ctrl+Enter` / `Cmd+Enter` executes
+  the active tab as anonymous Apex.
+- **Structured debug log viewer** — execution logs are parsed and displayed with
+  per-category filter checkboxes (USER_DEBUG, SOQL, DML, EXCEPTION, SYSTEM).
+- **Automatic trace flags** — a `DEVELOPER_LOG` trace flag is created for your
+  user before each run if one isn't already active, so you always get full logs
+  without manual setup.
+- **Two panel locations** — use the ⚡ icon in the Activity Bar for a sidebar
+  panel, or open the "Apex Editor" tab in the bottom panel area (next to
+  Terminal / Output).
 
 ## Requirements
 
@@ -21,11 +28,19 @@ authenticated Salesforce org, with a multi-tab scratch editor.
   installed and on your `PATH`, with at least one authenticated org
   (`sf org login web`).
 
+## Usage
+
+1. Authenticate at least one org: `sf org login web`
+2. Open the Apex Editor from the Activity Bar (⚡) or the bottom panel.
+3. Select your target org from the dropdown.
+4. Write Apex in the editor and press **Run** (or `Cmd+Enter`).
+5. Results and debug logs appear in the panels below.
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `Apex: Execute Active Script` | Run the current tab's code against the selected org. |
+| `Apex: Execute Active Script` | Run the current tab against the selected org. |
 | `Apex: Select Org` | Quick-pick an authenticated org. |
 | `Apex: New Script Tab` | Open a new empty tab. |
 
@@ -33,18 +48,8 @@ authenticated Salesforce org, with a multi-tab scratch editor.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `apexEditor.executeTimeoutMs` | `60000` | Timeout for anonymous Apex execution. |
-| `apexEditor.apiVersion` | `60.0` | Salesforce API version (reserved for future REST calls). |
-
-## Development
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
-
-```bash
-npm install
-npm run compile
-# F5 in VS Code -> Extension Development Host
-```
+| `apexEditor.executeTimeoutMs` | `60000` | Timeout (ms) for anonymous Apex execution. |
+| `apexEditor.apiVersion` | `60.0` | Salesforce API version for Tooling API calls. |
 
 ## License
 

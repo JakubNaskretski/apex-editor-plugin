@@ -4,9 +4,14 @@
   "description": "Multi-tab Apex editor for Salesforce with quick anonymous Apex execution against any authenticated org.",
   "version": "0.1.0",
   "publisher": "Skrety",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/JakubNaskretski/apex-editor-plugin"
+  },
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
   },
   "keywords": [
     "salesforce",
