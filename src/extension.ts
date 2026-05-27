@@ -14,8 +14,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     output,
-    vscode.window.registerWebviewViewProvider(ApexPanelProvider.viewType, provider),
-    vscode.window.registerWebviewViewProvider(ApexPanelProvider.viewTypePanel, panelProvider),
+    vscode.window.registerWebviewViewProvider(ApexPanelProvider.viewType, provider, {
+      webviewOptions: { retainContextWhenHidden: true }
+    }),
+    vscode.window.registerWebviewViewProvider(ApexPanelProvider.viewTypePanel, panelProvider, {
+      webviewOptions: { retainContextWhenHidden: true }
+    }),
     vscode.commands.registerCommand('apexEditor.execute', () => provider.executeActive()),
     vscode.commands.registerCommand('apexEditor.selectOrg', () => provider.pickOrg()),
     vscode.commands.registerCommand('apexEditor.newTab', () => provider.newTab())
