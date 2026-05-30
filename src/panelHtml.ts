@@ -92,27 +92,53 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       font-size: 14px;
       color: var(--vscode-foreground);
     }
+    /* Editor: a transparent textarea on top of a highlighted overlay (same
+       technique as the SOQL editor) so the caret stays in the textarea while the
+       overlay shows syntax colors. Both MUST share font / padding / line-height /
+       wrapping for the text to line up. */
     .editor {
       flex: 1 1 0;
-      display: flex;
+      position: relative;
       min-height: 100px;
+      overflow: hidden;
     }
+    #code-overlay,
     .editor textarea {
-      flex: 1;
-      width: 100%;
-      height: 100%;
+      position: absolute;
+      inset: 0;
+      margin: 0;
       box-sizing: border-box;
       padding: 8px;
-      border: 0;
-      outline: none;
-      resize: none;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: var(--vscode-editor-font-size, 13px);
       line-height: 1.4;
       tab-size: 4;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow: auto;
     }
+    #code-overlay {
+      pointer-events: none;
+      background: var(--vscode-editor-background);
+      color: var(--vscode-editor-foreground);
+      z-index: 0;
+    }
+    .editor textarea {
+      border: 0;
+      outline: none;
+      resize: none;
+      background: transparent;
+      color: transparent;
+      caret-color: var(--vscode-editor-foreground);
+      z-index: 1;
+    }
+    /* syntax token colors (VS Code Dark+ palette) */
+    .tok-keyword { color: #569cd6; font-weight: 600; }
+    .tok-type { color: #4ec9b0; }
+    .tok-annotation { color: #dcdcaa; }
+    .tok-string { color: #ce9178; }
+    .tok-number { color: #b5cea8; }
+    .tok-comment { color: #6a9955; font-style: italic; }
     .output {
       flex: 0 0 auto;
       border-top: 1px solid var(--vscode-panel-border);
@@ -318,6 +344,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
   </div>
   <div class="tabs" id="tabs"></div>
   <div class="editor">
+    <pre id="code-overlay" aria-hidden="true"></pre>
     <textarea id="code" spellcheck="false" placeholder="// Anonymous Apex&#10;System.debug('Hello from Apex Editor');"></textarea>
   </div>
   <div class="output">
