@@ -14,10 +14,15 @@
   const cmdLogBody = document.getElementById('cmd-log-body');
   const cmdCount = document.getElementById('cmd-count');
   const cmdChevron = document.getElementById('cmd-chevron');
+  const limitsEl = document.getElementById('limits');
+  const copyLogBtn = document.getElementById('copy-log-btn');
 
   let state = { tabs: [], activeTabId: null };
   let orgs = { orgs: [], selected: null };
+  let selectedKind = 'other';
   let suppressCodeEvent = false;
+  let isRunning = false;
+  let lastRawLog = '';
   let currentLogEntries = [];
   let cmdHistory = [];
   let cmdLogOpen = false;
@@ -57,10 +62,58 @@
     for (const org of orgs.orgs) {
       const opt = document.createElement('option');
       opt.value = org.username;
-      opt.textContent = org.label;
+      const badge = org.kind === 'prod' ? ' [PROD]'
+        : org.kind === 'sandbox' ? ' [SBX]'
+        : org.kind === 'scratch' ? ' [SCR]' : '';
+      opt.textContent = org.label + badge;
       if (org.username === orgs.selected) { opt.selected = true; }
       orgSelect.appendChild(opt);
     }
+    applyRunButtonKind();
+  }
+
+  // Tint the Run button when the selected org is production, as a standing warning.
+  function applyRunButtonKind() {
+    if (isRunning) {
+      runBtn.classList.remove('danger');
+      return;
+    }
+    const isProd = selectedKind === 'prod';
+    runBtn.classList.toggle('danger', isProd);
+    runBtn.title = isProd ? 'Execute on PRODUCTION' : 'Execute active script';
+  }
+
+  function setRunning(running) {
+    isRunning = running;
+    if (running) {
+      runBtn.disabled = false; // keep enabled so it can be clicked to cancel
+      runBtn.classList.remove('danger');
+      runBtn.innerHTML = '&#x25a0; Cancel';
+      runBtn.title = 'Cancel the running execution';
+    } else {
+      runBtn.disabled = orgs.orgs.length === 0;
+      runBtn.innerHTML = '&#x25b6; Run';
+      applyRunButtonKind();
+    }
+  }
+
+  function renderLimits(limits) {
+    limitsEl.innerHTML = '';
+    if (!limits || limits.length === 0) { return; }
+    const pick = limits
+      .filter(l => l.max > 0)
+      .sort((a, b) => (b.used / b.max) - (a.used / a.max))
+      .slice(0, 4);
+    pick.forEach((l, i) => {
+      if (i > 0) { limitsEl.appendChild(document.createTextNode(' · ')); }
+      const span = document.createElement('span');
+      const ratio = l.used / l.max;
+      if (ratio >= 1) { span.className = 'lim-over'; }
+      else if (ratio >= 0.8) { span.className = 'lim-warn'; }
+      const short = l.name.replace(/queries/i, 'q').replace(/statements/i, 'stmts');
+      span.textContent = `${short} ${l.used}/${l.max}`;
+      limitsEl.appendChild(span);
+    });
   }
 
   function renderTabs() {
@@ -124,9 +177,20 @@
 
   function renderActiveCode() {
     const active = state.tabs.find(t => t.id === state.activeTabId);
+    const next = active ? active.code : '';
+    // Only touch the textarea when the content actually changed (e.g. tab switch),
+    // and preserve the caret/selection if the user is currently typing in it —
+    // assigning `.value` otherwise jumps the caret to the end.
+    if (codeEl.value === next) { return; }
+    const focused = document.activeElement === codeEl;
+    const selStart = codeEl.selectionStart;
+    const selEnd = codeEl.selectionEnd;
     suppressCodeEvent = true;
-    codeEl.value = active ? active.code : '';
+    codeEl.value = next;
     suppressCodeEvent = false;
+    if (focused) {
+      try { codeEl.setSelectionRange(selStart, selEnd); } catch (_e) { /* ignore */ }
+    }
   }
 
   function setStatus(text, cls) {
@@ -151,6 +215,10 @@
     } else {
       outputBody.textContent = '';
       outputBody.classList.add('hidden');
+    }
+    // Move the caret to the offending line on a compile error.
+    if (!result.compiled && result.line > 0) {
+      focusErrorLocation(result.line, result.column);
     }
   }
 
@@ -245,7 +313,15 @@
     if (orgSelect.value) { post({ type: 'selectOrg', username: orgSelect.value }); }
   });
   refreshBtn.addEventListener('click', () => post({ type: 'refreshOrgs' }));
-  runBtn.addEventListener('click', () => post({ type: 'execute' }));
+  runBtn.addEventListener('click', () => {
+    if (isRunning) { post({ type: 'cancel' }); }
+    else { post({ type: 'execute' }); }
+  });
+  if (copyLogBtn) {
+    copyLogBtn.addEventListener('click', () => {
+      if (lastRawLog) { post({ type: 'copy', text: lastRawLog }); }
+    });
+  }
 
   codeEl.addEventListener('input', () => {
     if (suppressCodeEvent || !state.activeTabId) { return; }
@@ -256,8 +332,45 @@
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       post({ type: 'execute' });
+      return;
+    }
+    // Trap Tab so it indents instead of moving focus out of the editor.
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      insertIndent(e.shiftKey);
     }
   });
+
+  function insertIndent(dedent) {
+    const indent = '  ';
+    const start = codeEl.selectionStart;
+    const end = codeEl.selectionEnd;
+    const value = codeEl.value;
+    if (dedent) {
+      // Remove up to two leading whitespace chars before the caret on this line.
+      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+      const lead = value.slice(lineStart, start);
+      const remove = lead.endsWith('  ') ? 2 : (lead.endsWith(' ') || lead.endsWith('\t')) ? 1 : 0;
+      if (remove === 0) { return; }
+      codeEl.value = value.slice(0, start - remove) + value.slice(start);
+      codeEl.selectionStart = codeEl.selectionEnd = start - remove;
+    } else {
+      codeEl.value = value.slice(0, start) + indent + value.slice(end);
+      codeEl.selectionStart = codeEl.selectionEnd = start + indent.length;
+    }
+    if (state.activeTabId) { post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value }); }
+  }
+
+  function focusErrorLocation(line, column) {
+    if (!line || line < 1) { return; }
+    const lines = codeEl.value.split('\n');
+    let offset = 0;
+    for (let i = 0; i < line - 1 && i < lines.length; i++) { offset += lines[i].length + 1; }
+    offset += Math.max(0, (column || 1) - 1);
+    offset = Math.min(offset, codeEl.value.length);
+    codeEl.focus();
+    try { codeEl.setSelectionRange(offset, offset); } catch (_e) { /* ignore */ }
+  }
 
   window.addEventListener('message', event => {
     const msg = event.data;
@@ -269,27 +382,35 @@
         break;
       case 'orgs':
         orgs = { orgs: msg.orgs, selected: msg.selected };
+        selectedKind = msg.selectedKind || 'other';
         renderOrgs();
         break;
       case 'execStart':
         setStatus('Running...', 'status-warn');
         outputBody.textContent = '';
         outputBody.classList.add('hidden');
+        limitsEl.innerHTML = '';
         currentLogEntries = [];
         renderLogEntries();
-        runBtn.disabled = true;
+        setRunning(true);
         break;
       case 'execResult':
-        runBtn.disabled = false;
+        setRunning(false);
         renderExecResult(msg.result);
+        lastRawLog = (msg.result && msg.result.logs) || '';
         currentLogEntries = msg.logEntries || [];
         renderLogEntries();
+        renderLimits(msg.limits);
         break;
       case 'execError':
-        runBtn.disabled = false;
+        setRunning(false);
         setStatus('Error', 'status-err');
         outputBody.textContent = msg.message;
         outputBody.classList.remove('hidden');
+        break;
+      case 'execCancelled':
+        setRunning(false);
+        setStatus('Cancelled', 'status-warn');
         break;
       case 'cmdLog':
         cmdHistory.push(msg.entry);

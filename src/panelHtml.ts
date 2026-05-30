@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomBytes } from 'crypto';
 
 export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string, location: 'sidebar' | 'panel' = 'sidebar'): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'panel.js'));
@@ -145,6 +146,34 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
     .status-err { color: var(--vscode-testing-iconFailed, #f85149); }
     .status-warn { color: var(--vscode-editorWarning-foreground, #d29922); }
     .empty { opacity: 0.6; font-style: italic; }
+    .limits {
+      margin-left: auto;
+      font-size: 11px;
+      text-transform: none;
+      letter-spacing: normal;
+      color: var(--vscode-descriptionForeground);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .limits .lim-warn { color: var(--vscode-editorWarning-foreground, #d29922); }
+    .limits .lim-over { color: var(--vscode-testing-iconFailed, #f85149); }
+    button.ghost {
+      margin-left: auto;
+      background: transparent;
+      border: 1px solid var(--vscode-panel-border);
+      color: var(--vscode-foreground);
+      font-size: 11px;
+      padding: 1px 7px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    button.ghost:hover { background: var(--vscode-list-hoverBackground); }
+    #run-btn.danger {
+      background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+      color: #fff;
+      border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+    }
     .log-viewer {
       flex: 1 1 0;
       border-top: 1px solid var(--vscode-panel-border);
@@ -294,6 +323,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
   <div class="output">
     <div class="output-header">
       <span id="output-status" class="empty">No execution yet</span>
+      <span id="limits" class="limits"></span>
     </div>
     <div class="output-body hidden" id="output-body"></div>
   </div>
@@ -305,6 +335,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       <label class="log-filter"><input type="checkbox" data-cat="DML" checked> DML</label>
       <label class="log-filter"><input type="checkbox" data-cat="EXCEPTION" checked> EXCEPTION</label>
       <label class="log-filter"><input type="checkbox" data-cat="SYSTEM"> SYSTEM</label>
+      <button id="copy-log-btn" class="ghost" title="Copy the full debug log">&#x2398; Copy</button>
     </div>
     <div class="log-body" id="log-body">
       <span class="empty" style="padding: 8px; display: block;">No execution yet</span>
@@ -324,10 +355,6 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
 }
 
 export function generateNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < 32; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  // CSPRNG (not Math.random) so the CSP script nonce isn't predictable.
+  return randomBytes(16).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
 }

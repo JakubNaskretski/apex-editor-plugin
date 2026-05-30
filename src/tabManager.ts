@@ -81,7 +81,10 @@ export class TabManager {
     const tab = this.tabs.find(t => t.id === id);
     if (tab && tab.code !== code) {
       tab.code = code;
-      this.persist();
+      // Persist WITHOUT firing onDidChange: the webview already holds this text
+      // (it just sent it). Re-rendering the active textarea on every keystroke
+      // would reset the caret to the end and break mid-text editing.
+      this.persistSilently();
     }
   }
 
@@ -99,10 +102,15 @@ export class TabManager {
   }
 
   private persist(): void {
+    this.persistSilently();
+    this.emitter.fire();
+  }
+
+  /** Write state to storage without notifying listeners (used for code edits). */
+  private persistSilently(): void {
     void this.storage.update(STORAGE_KEY, {
       tabs: this.tabs,
       activeTabId: this.activeTabId
     });
-    this.emitter.fire();
   }
 }
