@@ -16,6 +16,61 @@
   const cmdChevron = document.getElementById('cmd-chevron');
   const limitsEl = document.getElementById('limits');
   const copyLogBtn = document.getElementById('copy-log-btn');
+  const overlayEl = document.getElementById('code-overlay');
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // ── Apex syntax highlighting (transparent textarea over a tokenized overlay) ──
+  const APEX_KEYWORDS = new Set([
+    'public', 'private', 'protected', 'global', 'static', 'final', 'virtual', 'abstract',
+    'override', 'transient', 'webservice', 'testmethod', 'with', 'without', 'sharing',
+    'inherited', 'class', 'interface', 'enum', 'extends', 'implements', 'trigger', 'on',
+    'new', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'when', 'break',
+    'continue', 'try', 'catch', 'finally', 'throw', 'this', 'super', 'instanceof',
+    'null', 'true', 'false', 'void', 'as', 'get', 'set',
+    'insert', 'update', 'upsert', 'delete', 'undelete', 'merge',
+    'before', 'after', 'isbefore', 'isafter', 'isinsert', 'isupdate', 'isdelete'
+  ]);
+  const APEX_TYPES = new Set([
+    'integer', 'string', 'boolean', 'decimal', 'double', 'long', 'date', 'datetime',
+    'time', 'id', 'blob', 'object', 'list', 'set', 'map', 'sobject', 'schema', 'system',
+    'database', 'test', 'userinfo', 'trigger', 'exception', 'type', 'pagereference'
+  ]);
+
+  function tokenizeApex(text) {
+    const tokens = [];
+    let i = 0;
+    while (i < text.length) {
+      const c = text[i];
+      if (/\s/.test(c)) { let s = i; while (i < text.length && /\s/.test(text[i])) { i++; } tokens.push({ t: 'ws', v: text.slice(s, i) }); continue; }
+      if (c === '/' && text[i + 1] === '/') { let s = i; while (i < text.length && text[i] !== '\n') { i++; } tokens.push({ t: 'comment', v: text.slice(s, i) }); continue; }
+      if (c === '/' && text[i + 1] === '*') { let s = i; i += 2; while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) { i++; } i = Math.min(i + 2, text.length); tokens.push({ t: 'comment', v: text.slice(s, i) }); continue; }
+      if (c === "'") { let s = i; i++; while (i < text.length) { if (text[i] === '\\') { i += 2; continue; } if (text[i] === "'") { i++; break; } i++; } tokens.push({ t: 'string', v: text.slice(s, i) }); continue; }
+      if (c === '@' && /[a-zA-Z_]/.test(text[i + 1] || '')) { let s = i; i++; while (i < text.length && /[a-zA-Z0-9_]/.test(text[i])) { i++; } tokens.push({ t: 'annotation', v: text.slice(s, i) }); continue; }
+      if (/\d/.test(c)) { let s = i; while (i < text.length && /[\d._a-fxLlDd]/.test(text[i])) { i++; } tokens.push({ t: 'number', v: text.slice(s, i) }); continue; }
+      if (/[a-zA-Z_]/.test(c)) {
+        let s = i; while (i < text.length && /[a-zA-Z0-9_]/.test(text[i])) { i++; }
+        const w = text.slice(s, i); const lw = w.toLowerCase();
+        tokens.push({ t: APEX_KEYWORDS.has(lw) ? 'keyword' : APEX_TYPES.has(lw) ? 'type' : 'plain', v: w });
+        continue;
+      }
+      tokens.push({ t: 'plain', v: c }); i++;
+    }
+    return tokens;
+  }
+
+  function highlightApex() {
+    if (!overlayEl) { return; }
+    const text = codeEl.value;
+    if (!text) { overlayEl.innerHTML = ''; return; }
+    let html = '';
+    for (const tok of tokenizeApex(text)) {
+      html += (tok.t === 'ws' || tok.t === 'plain') ? esc(tok.v) : '<span class="tok-' + tok.t + '">' + esc(tok.v) + '</span>';
+    }
+    overlayEl.innerHTML = html + '\n'; // trailing newline so overlay height matches textarea
+  }
 
   let state = { tabs: [], activeTabId: null };
   let orgs = { orgs: [], selected: null };
@@ -188,6 +243,7 @@
     suppressCodeEvent = true;
     codeEl.value = next;
     suppressCodeEvent = false;
+    highlightApex();
     if (focused) {
       try { codeEl.setSelectionRange(selStart, selEnd); } catch (_e) { /* ignore */ }
     }
@@ -324,8 +380,16 @@
   }
 
   codeEl.addEventListener('input', () => {
+    highlightApex();
     if (suppressCodeEvent || !state.activeTabId) { return; }
     post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value });
+  });
+
+  // Keep the highlight overlay scrolled in lockstep with the textarea.
+  codeEl.addEventListener('scroll', () => {
+    if (!overlayEl) { return; }
+    overlayEl.scrollTop = codeEl.scrollTop;
+    overlayEl.scrollLeft = codeEl.scrollLeft;
   });
 
   codeEl.addEventListener('keydown', e => {
@@ -358,6 +422,7 @@
       codeEl.value = value.slice(0, start) + indent + value.slice(end);
       codeEl.selectionStart = codeEl.selectionEnd = start + indent.length;
     }
+    highlightApex();
     if (state.activeTabId) { post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value }); }
   }
 

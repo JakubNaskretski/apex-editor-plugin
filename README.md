@@ -6,11 +6,16 @@ authenticated Salesforce org, in the bottom panel next to the Terminal.
 ## Features
 
 - **Multi-tab editor** — each tab keeps its own Apex source and persists across
-  VS Code restarts (per workspace).
+  VS Code restarts (per workspace), with Apex syntax highlighting and Tab/Shift+Tab
+  indentation.
 - **Org switcher** — pick any org already authenticated with the Salesforce CLI
   (`sf`); the default org is pre-selected on first launch.
+- **Production-run safeguard** — orgs are tagged prod/sandbox/scratch; a `[PROD]`
+  badge and a confirmation dialog guard against accidentally running against a
+  production org (toggle with `apexEditor.confirmProductionRun`).
 - **One-click execution** — Run button or `Ctrl+Enter` / `Cmd+Enter` executes
-  the active tab as anonymous Apex.
+  the active tab as anonymous Apex; runs are cancellable, and a compile error
+  jumps the caret to the offending line.
 - **Structured debug log viewer** — execution logs are parsed and displayed with
   per-category filter checkboxes (USER_DEBUG, SOQL, DML, EXCEPTION, SYSTEM).
 - **Automatic trace flags** — a `DEVELOPER_LOG` trace flag is created for your
