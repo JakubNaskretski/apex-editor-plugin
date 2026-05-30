@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import { OrgStore } from './orgStore';
 import { TabManager } from './tabManager';
-import { ApexExecuteResult, OrgInfo, SfCliError, SfCliService } from './sfCliService';
+import { ApexExecuteResult, OrgInfo, OrgKind, SfCliCancelledError, SfCliError, SfCliService } from './sfCliService';
 import { generateNonce, getPanelHtml } from './panelHtml';
-import { parseLogs } from './logParser';
+import { parseLogs, parseLimitUsage } from './logParser';
 import { TraceService } from './traceService';
 
 type InboundMessage =
@@ -15,11 +15,14 @@ type InboundMessage =
   | { type: 'renameTab'; tabId: string; title: string }
   | { type: 'selectOrg'; username: string }
   | { type: 'refreshOrgs' }
-  | { type: 'execute' };
+  | { type: 'execute' }
+  | { type: 'cancel' }
+  | { type: 'copy'; text: string };
 
 interface OrgsPayload {
-  orgs: Array<{ username: string; alias?: string; label: string }>;
+  orgs: Array<{ username: string; alias?: string; label: string; kind: OrgKind }>;
   selected: string | null;
+  selectedKind: OrgKind;
 }
 
 export class ApexPanelProvider implements vscode.WebviewViewProvider {
@@ -28,6 +31,8 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private orgs: OrgInfo[] = [];
   private readonly traceService: TraceService;
+  private running = false;
+  private currentAbort?: AbortController;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -54,6 +59,10 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   }
 
   async executeActive(): Promise<void> {
+    if (this.running) {
+      vscode.window.showInformationMessage('An Apex execution is already running.');
+      return;
+    }
     const active = this.tabs.getActive();
     if (!active) {
       vscode.window.showWarningMessage('No active Apex tab to execute.');
@@ -68,6 +77,23 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
       vscode.window.showWarningMessage('Select a Salesforce org first.');
       return;
     }
+
+    // Production safety: anonymous Apex executes immediately and can modify live
+    // data, send emails, and make callouts. Confirm before running against prod.
+    const orgInfo = this.orgs.find(o => o.username === selectedOrg);
+    const confirmProd = vscode.workspace.getConfiguration('apexEditor').get<boolean>('confirmProductionRun', true);
+    if (confirmProd && SfCliService.isLikelyProduction(orgInfo)) {
+      const label = orgInfo?.alias ?? selectedOrg;
+      const choice = await vscode.window.showWarningMessage(
+        `⚠ Run anonymous Apex against PRODUCTION (${label})?`,
+        { modal: true, detail: 'This executes immediately and can modify live data, send emails, and make callouts.' },
+        'Run on Production'
+      );
+      if (choice !== 'Run on Production') {
+        return;
+      }
+    }
+
     await this.runApex(active.code, selectedOrg);
   }
 
@@ -137,6 +163,15 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
       case 'execute':
         await this.executeActive();
         return;
+      case 'cancel':
+        this.currentAbort?.abort();
+        return;
+      case 'copy':
+        if (typeof message.text === 'string' && message.text) {
+          await vscode.env.clipboard.writeText(message.text);
+          vscode.window.showInformationMessage('Apex Editor: copied to clipboard.');
+        }
+        return;
     }
   }
 
@@ -170,41 +205,48 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     const config = vscode.workspace.getConfiguration('apexEditor');
     const timeout = config.get<number>('executeTimeoutMs', 60_000);
     const apiVersion = config.get<string>('apiVersion', '60.0');
+    const controller = new AbortController();
+    this.running = true;
+    this.currentAbort = controller;
     this.post({ type: 'execStart' });
     this.output.appendLine(`[exec] Running anonymous Apex against ${username}...`);
     const start = Date.now();
+    const cmd = `sf apex run --target-org ${username}`;
     try {
       await this.traceService.ensureTraceFlag(username, apiVersion);
-      const result = await this.sf.executeAnonymous(code, username, timeout);
+      const result = await this.sf.executeAnonymous(code, username, timeout, controller.signal);
       const durationMs = Date.now() - start;
       this.output.appendLine(this.formatResult(result));
-      this.post({ type: 'execResult', result, logEntries: parseLogs(result.logs) });
+      this.post({
+        type: 'execResult',
+        result,
+        logEntries: parseLogs(result.logs),
+        limits: parseLimitUsage(result.logs)
+      });
       this.post({
         type: 'cmdLog',
-        entry: {
-          timestamp: new Date().toLocaleTimeString(),
-          command: `sf apex run --target-org ${username}`,
-          durationMs,
-          success: result.compiled && result.success,
-        }
+        entry: { timestamp: new Date().toLocaleTimeString(), command: cmd, durationMs, success: result.compiled && result.success }
       });
     } catch (err) {
       const durationMs = Date.now() - start;
-      const message = err instanceof Error ? err.message : String(err);
-      this.output.appendLine(`[exec] Error: ${message}`);
-      if (err instanceof SfCliError && err.stderr) {
-        this.output.appendLine(err.stderr);
+      if (err instanceof SfCliCancelledError) {
+        this.output.appendLine('[exec] Cancelled by user.');
+        this.post({ type: 'execCancelled' });
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        this.output.appendLine(`[exec] Error: ${message}`);
+        if (err instanceof SfCliError && err.stderr) {
+          this.output.appendLine(err.stderr);
+        }
+        this.post({ type: 'execError', message });
       }
-      this.post({ type: 'execError', message });
       this.post({
         type: 'cmdLog',
-        entry: {
-          timestamp: new Date().toLocaleTimeString(),
-          command: `sf apex run --target-org ${username}`,
-          durationMs,
-          success: false,
-        }
+        entry: { timestamp: new Date().toLocaleTimeString(), command: cmd, durationMs, success: false }
       });
+    } finally {
+      this.running = false;
+      this.currentAbort = undefined;
     }
   }
 
@@ -233,13 +275,17 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   }
 
   private postOrgs(): void {
+    const selected = this.orgStore.get() ?? null;
+    const selectedOrg = selected ? this.orgs.find(o => o.username === selected) : undefined;
     const payload: OrgsPayload = {
       orgs: this.orgs.map(o => ({
         username: o.username,
         alias: o.alias,
-        label: o.alias ? `${o.alias} (${o.username})` : o.username
+        label: o.alias ? `${o.alias} (${o.username})` : o.username,
+        kind: SfCliService.kindOf(o)
       })),
-      selected: this.orgStore.get() ?? null
+      selected,
+      selectedKind: SfCliService.kindOf(selectedOrg)
     };
     this.post({ type: 'orgs', ...payload });
   }

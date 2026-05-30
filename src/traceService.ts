@@ -9,9 +9,18 @@ interface ToolingQueryResult<T> {
 export class TraceService {
   constructor(private readonly sf: SfCliService) {}
 
+  /** Per-org "we've ensured a trace flag until this epoch-ms" cache, so we don't
+   *  issue 2-3 Tooling API calls on every single execution. */
+  private readonly ensuredUntil = new Map<string, number>();
+
   // Ensures a DEVELOPER_LOG trace flag exists for the current user.
   // Best-effort: swallows all errors so execution is never blocked.
   async ensureTraceFlag(targetOrg: string, apiVersion: string): Promise<void> {
+    // Skip the Tooling round-trips if we already ensured a flag for this org
+    // recently (re-verify periodically in case it was deleted/expired).
+    if ((this.ensuredUntil.get(targetOrg) ?? 0) > Date.now()) {
+      return;
+    }
     try {
       const org = await this.sf.getOrgDetails(targetOrg);
       const { accessToken, instanceUrl, username } = org;
@@ -30,6 +39,9 @@ export class TraceService {
         `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'DEVELOPER_LOG' AND ExpirationDate > TODAY`
       );
       if (flagResult.records.length > 0) {
+        // A flag already exists (expiry > TODAY). Re-verify in ~10 min rather than
+        // re-querying on every run, since we don't know its exact expiry here.
+        this.ensuredUntil.set(targetOrg, Date.now() + 10 * 60 * 1000);
         return;
       }
 
@@ -47,6 +59,8 @@ export class TraceService {
         StartDate: now.toISOString(),
         ExpirationDate: expiry.toISOString(),
       });
+      // Cache until shortly before the flag expires.
+      this.ensuredUntil.set(targetOrg, expiry.getTime() - 5 * 60 * 1000);
     } catch {
       // Intentionally swallowed — trace flag setup is best-effort
     }
@@ -118,9 +132,17 @@ export class TraceService {
           },
         },
         res => {
-          let data = '';
-          res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => { chunks.push(Buffer.from(chunk)); });
           res.on('end', () => {
+            const data = Buffer.concat(chunks).toString('utf8');
+            const status = res.statusCode ?? 0;
+            if (status < 200 || status >= 300) {
+              // Surface (to the caller's try/catch, which swallows) instead of
+              // JSON.parse'ing a Salesforce error array into the wrong shape.
+              reject(new Error(`Tooling API ${status}: ${data.slice(0, 300)}`));
+              return;
+            }
             try {
               resolve(JSON.parse(data) as T);
             } catch (e) {

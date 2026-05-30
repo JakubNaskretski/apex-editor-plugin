@@ -7,6 +7,8 @@ scripts/**
 tsconfig.json
 **/*.ts
 **/*.map
+**/*.test.js
+vitest.config.*
 node_modules/**
 !node_modules/.bin/
 **/.eslintrc.json

@@ -2,7 +2,7 @@
   "name": "apex-editor",
   "displayName": "Apex Editor",
   "description": "Multi-tab Apex editor for Salesforce with quick anonymous Apex execution against any authenticated org.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "Skrety",
   "license": "MIT",
   "repository": {
@@ -31,13 +31,6 @@
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "apex-editor",
-          "title": "Apex Editor",
-          "icon": "$(zap)"
-        }
-      ],
       "panel": [
         {
           "id": "apex-editor-panel",
@@ -47,13 +40,6 @@
       ]
     },
     "views": {
-      "apex-editor": [
-        {
-          "type": "webview",
-          "id": "apexEditor.panel",
-          "name": "Apex Scripts"
-        }
-      ],
       "apex-editor-panel": [
         {
           "type": "webview",
@@ -92,6 +78,11 @@
           "type": "string",
           "default": "60.0",
           "description": "Salesforce API version used for Tooling API calls."
+        },
+        "apexEditor.confirmProductionRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation dialog before running anonymous Apex against a production org (anonymous Apex executes immediately against live data)."
         }
       }
     }

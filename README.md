@@ -1,8 +1,7 @@
 # Apex Editor
 
 A lightweight VS Code extension for running ad-hoc anonymous Apex against any
-authenticated Salesforce org — available both in the Activity Bar sidebar and
-the bottom panel (next to Terminal).
+authenticated Salesforce org, in the bottom panel next to the Terminal.
 
 ## Features
 
@@ -17,9 +16,8 @@ the bottom panel (next to Terminal).
 - **Automatic trace flags** — a `DEVELOPER_LOG` trace flag is created for your
   user before each run if one isn't already active, so you always get full logs
   without manual setup.
-- **Two panel locations** — use the ⚡ icon in the Activity Bar for a sidebar
-  panel, or open the "Apex Editor" tab in the bottom panel area (next to
-  Terminal / Output).
+- **Bottom-panel console** — opens as an "Apex Editor" tab in the bottom panel
+  area (next to Terminal / Output), so editor, output and logs sit together.
 
 ## Requirements
 
@@ -31,7 +29,7 @@ the bottom panel (next to Terminal).
 ## Usage
 
 1. Authenticate at least one org: `sf org login web`
-2. Open the Apex Editor from the Activity Bar (⚡) or the bottom panel.
+2. Open the "Apex Editor" tab in the bottom panel (next to Terminal / Output).
 3. Select your target org from the dropdown.
 4. Write Apex in the editor and press **Run** (or `Cmd+Enter`).
 5. Results and debug logs appear in the panels below.
