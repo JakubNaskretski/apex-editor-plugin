@@ -5,6 +5,7 @@ import { ApexExecuteResult, OrgInfo, OrgKind, SfCliCancelledError, SfCliError, S
 import { generateNonce, getPanelHtml } from './panelHtml';
 import { parseLogs, parseLimitUsage } from './logParser';
 import { TraceService } from './traceService';
+import { mergeSnippets } from './snippets';
 
 type InboundMessage =
   | { type: 'ready' }
@@ -44,6 +45,14 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   ) {
     this.tabs.onDidChange(() => this.postState());
     this.traceService = new TraceService(sf);
+    // Re-send the snippet dictionary to the webview whenever the user edits it.
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration('apexEditor.customSnippets')) {
+          this.postSnippets();
+        }
+      })
+    );
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -135,8 +144,14 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   private async handleMessage(message: InboundMessage): Promise<void> {
     switch (message.type) {
       case 'ready':
-        await this.loadOrgs();
+        // Send tab state FIRST so the editor is wired up immediately. Loading
+        // orgs spawns the `sf` CLI and can take seconds; if we awaited it before
+        // posting state, the textarea would be live but tab-less for that whole
+        // window — anything typed then is dropped and later clobbered when state
+        // finally arrives. Post state synchronously, then load orgs.
         this.postState();
+        this.postSnippets();
+        await this.loadOrgs();
         return;
       case 'updateCode':
         this.tabs.updateCode(message.tabId, message.code);
@@ -272,6 +287,11 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   private postState(): void {
     const state = this.tabs.getState();
     this.post({ type: 'state', tabs: state.tabs, activeTabId: state.activeTabId });
+  }
+
+  private postSnippets(): void {
+    const custom = vscode.workspace.getConfiguration('apexEditor').get('customSnippets');
+    this.post({ type: 'snippets', items: mergeSnippets(custom) });
   }
 
   private postOrgs(): void {

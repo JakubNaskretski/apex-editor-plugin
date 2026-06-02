@@ -17,6 +17,8 @@
   const limitsEl = document.getElementById('limits');
   const copyLogBtn = document.getElementById('copy-log-btn');
   const overlayEl = document.getElementById('code-overlay');
+  const completionEl = document.getElementById('completion');
+  const mirrorEl = document.getElementById('code-mirror');
 
   function esc(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -77,6 +79,21 @@
   let selectedKind = 'other';
   let suppressCodeEvent = false;
   let isRunning = false;
+  // The id of the tab the textarea currently reflects. Used to tell a real tab
+  // switch (load the new code) from a same-tab state refresh (textarea is the
+  // source of truth for in-progress edits — never overwrite it).
+  let renderedTabId = null;
+  // Until the first `state` arrives we don't know which tab is active, so edits
+  // would be dropped and then clobbered. Keep the editor read-only until then.
+  let stateLoaded = false;
+  codeEl.readOnly = true;
+  // Snippet suggestions sent by the extension, and the popup's live state.
+  let snippets = [];
+  let completionOpen = false;
+  let completionItems = [];
+  let completionIndex = 0;
+  let currentTokenRange = null; // {start, end} of the word being completed
+  const MIN_TOKEN = 2;          // chars before the popup appears
   let lastRawLog = '';
   let currentLogEntries = [];
   let cmdHistory = [];
@@ -231,10 +248,18 @@
   }
 
   function renderActiveCode() {
+    // Only load code into the textarea on a genuine tab switch (or the very first
+    // render). For a state refresh of the SAME tab — a rename, a sibling tab
+    // closing, the initial state landing while the user is mid-paste — the
+    // textarea holds the user's live edits and is the source of truth, so leave
+    // it untouched. This is what stops a late `state` message from eating text
+    // the user just typed.
+    const tabChanged = state.activeTabId !== renderedTabId;
+    renderedTabId = state.activeTabId;
+    if (!tabChanged) { return; }
     const active = state.tabs.find(t => t.id === state.activeTabId);
     const next = active ? active.code : '';
-    // Only touch the textarea when the content actually changed (e.g. tab switch),
-    // and preserve the caret/selection if the user is currently typing in it —
+    // Preserve the caret/selection if the user is currently typing in it —
     // assigning `.value` otherwise jumps the caret to the end.
     if (codeEl.value === next) { return; }
     const focused = document.activeElement === codeEl;
@@ -294,34 +319,33 @@
       const row = document.createElement('div');
       row.className = `log-entry log-cat-${entry.category}`;
 
-      const meta = document.createElement('div');
-      meta.className = 'log-entry-meta';
-
+      // One flowing row: TYPE [line] message……                      time
+      // The message takes the remaining width and wraps inside its own column,
+      // so the category label sits on the SAME line as the text instead of on a
+      // line above it.
       const type = document.createElement('span');
       type.className = 'log-type';
       type.textContent = entry.eventType;
-      meta.appendChild(type);
+      row.appendChild(type);
 
       if (entry.lineRef) {
         const line = document.createElement('span');
         line.className = 'log-line';
         line.textContent = entry.lineRef;
-        meta.appendChild(line);
+        row.appendChild(line);
+      }
+
+      if (entry.message) {
+        const msg = document.createElement('span');
+        msg.className = 'log-msg';
+        msg.textContent = entry.message;
+        row.appendChild(msg);
       }
 
       const time = document.createElement('span');
       time.className = 'log-time';
       time.textContent = entry.timestamp;
-      meta.appendChild(time);
-
-      row.appendChild(meta);
-
-      if (entry.message) {
-        const msg = document.createElement('div');
-        msg.className = 'log-msg';
-        msg.textContent = entry.message;
-        row.appendChild(msg);
-      }
+      row.appendChild(time);
 
       logBody.appendChild(row);
     }
@@ -383,16 +407,33 @@
     highlightApex();
     if (suppressCodeEvent || !state.activeTabId) { return; }
     post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value });
+    updateCompletion();
   });
 
   // Keep the highlight overlay scrolled in lockstep with the textarea.
   codeEl.addEventListener('scroll', () => {
-    if (!overlayEl) { return; }
-    overlayEl.scrollTop = codeEl.scrollTop;
-    overlayEl.scrollLeft = codeEl.scrollLeft;
+    if (overlayEl) {
+      overlayEl.scrollTop = codeEl.scrollTop;
+      overlayEl.scrollLeft = codeEl.scrollLeft;
+    }
+    if (completionOpen) { positionCompletion(); }
   });
 
+  // Dismiss the suggestion popup when focus leaves the editor.
+  codeEl.addEventListener('blur', () => closeCompletion());
+
   codeEl.addEventListener('keydown', e => {
+    // While the suggestion popup is open it owns the navigation/accept keys.
+    if (completionOpen) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); moveCompletion(1); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); moveCompletion(-1); return; }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.ctrlKey && !e.metaKey)) { e.preventDefault(); acceptCompletion(completionIndex); return; }
+      if (e.key === 'Escape') { e.preventDefault(); closeCompletion(); return; }
+      // Moving the caret away or running (Ctrl/Cmd+Enter) just dismisses it and
+      // falls through to the normal handlers below.
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') { closeCompletion(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { closeCompletion(); }
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       post({ type: 'execute' });
@@ -437,6 +478,169 @@
     try { codeEl.setSelectionRange(offset, offset); } catch (_e) { /* ignore */ }
   }
 
+  // ── Snippet suggestion popup ──────────────────────────────────────────────
+  // A lightweight completion list over the textarea. It matches the word before
+  // the caret against the dictionary the extension sent and inserts on Tab/Enter.
+  // Bodies use VS Code snippet syntax ($0 final caret, $1/${1:placeholder} stops);
+  // we place the caret at the first stop rather than offering multi-stop tabbing.
+
+  // The word immediately before the caret (letters/digits/_), or null.
+  function currentToken() {
+    const pos = codeEl.selectionStart;
+    if (pos !== codeEl.selectionEnd) { return null; } // no popup while selecting
+    const m = /[A-Za-z_][A-Za-z0-9_]*$/.exec(codeEl.value.slice(0, pos));
+    if (!m) { return null; }
+    return { text: m[0], start: pos - m[0].length, end: pos };
+  }
+
+  // Match if the prefix OR the label starts with the typed token (so "sd" and
+  // "system" both surface System.debug). Prefix matches rank above label-only.
+  function matchSnippets(token) {
+    const t = token.toLowerCase();
+    return snippets
+      .map(s => {
+        const p = (s.prefix || '').toLowerCase();
+        const l = (s.label || s.prefix || '').toLowerCase();
+        const rank = p.startsWith(t) ? 0 : l.startsWith(t) ? 1 : -1;
+        return { s: s, rank: rank };
+      })
+      .filter(x => x.rank >= 0)
+      .sort((a, b) => a.rank - b.rank || (a.s.label || a.s.prefix).length - (b.s.label || b.s.prefix).length)
+      .slice(0, 8)
+      .map(x => x.s);
+  }
+
+  function updateCompletion() {
+    const tok = currentToken();
+    if (!tok || tok.text.length < MIN_TOKEN) { closeCompletion(); return; }
+    const items = matchSnippets(tok.text);
+    if (items.length === 0) { closeCompletion(); return; }
+    currentTokenRange = { start: tok.start, end: tok.end };
+    completionItems = items;
+    completionIndex = 0;
+    completionOpen = true;
+    renderCompletion();
+    completionEl.classList.remove('hidden');
+    positionCompletion();
+  }
+
+  function closeCompletion() {
+    if (!completionOpen) { return; }
+    completionOpen = false;
+    completionItems = [];
+    currentTokenRange = null;
+    completionEl.classList.add('hidden');
+  }
+
+  function moveCompletion(delta) {
+    if (!completionOpen) { return; }
+    const n = completionItems.length;
+    completionIndex = (completionIndex + delta + n) % n;
+    renderCompletion();
+    const sel = completionEl.querySelector('.completion-item.selected');
+    if (sel) { sel.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  function renderCompletion() {
+    completionEl.innerHTML = '';
+    completionItems.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = 'completion-item' + (i === completionIndex ? ' selected' : '');
+      const label = document.createElement('span');
+      label.className = 'completion-label';
+      label.textContent = item.label || item.prefix;
+      row.appendChild(label);
+      if (item.description) {
+        const desc = document.createElement('span');
+        desc.className = 'completion-desc';
+        desc.textContent = item.description;
+        row.appendChild(desc);
+      }
+      // mousedown (not click) so we insert before the textarea loses focus.
+      row.addEventListener('mousedown', e => { e.preventDefault(); acceptCompletion(i); });
+      completionEl.appendChild(row);
+    });
+  }
+
+  function acceptCompletion(index) {
+    const item = completionItems[index];
+    const range = currentTokenRange;
+    if (!item || !range) { closeCompletion(); return; }
+    const expanded = expandSnippet(item.body != null ? item.body : (item.label || item.prefix));
+    const before = codeEl.value.slice(0, range.start);
+    const after = codeEl.value.slice(range.end);
+    suppressCodeEvent = true;
+    codeEl.value = before + expanded.text + after;
+    suppressCodeEvent = false;
+    const caretPos = range.start + expanded.caret;
+    codeEl.focus();
+    try { codeEl.setSelectionRange(caretPos, caretPos); } catch (_e) { /* ignore */ }
+    highlightApex();
+    closeCompletion();
+    if (state.activeTabId) { post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value }); }
+  }
+
+  // Substitute ${n:placeholder} → its text, drop $n / ${n} / $0 markers, and
+  // report where the caret should land: the first positive tab stop, else $0,
+  // else the end of the inserted text.
+  function expandSnippet(body) {
+    let out = '';
+    let i = 0;
+    const stops = [];
+    while (i < body.length) {
+      if (body[i] === '\\' && body[i + 1] === '$') { out += '$'; i += 2; continue; }
+      if (body[i] === '$') {
+        const rest = body.slice(i);
+        let m;
+        if ((m = /^\$\{(\d+):([^}]*)\}/.exec(rest))) { stops.push({ order: +m[1], pos: out.length }); out += m[2]; i += m[0].length; continue; }
+        if ((m = /^\$\{(\d+)\}/.exec(rest))) { stops.push({ order: +m[1], pos: out.length }); i += m[0].length; continue; }
+        if ((m = /^\$(\d+)/.exec(rest))) { stops.push({ order: +m[1], pos: out.length }); i += m[0].length; continue; }
+      }
+      out += body[i];
+      i++;
+    }
+    const positive = stops.filter(s => s.order > 0).sort((a, b) => a.order - b.order)[0];
+    const zero = stops.find(s => s.order === 0);
+    const anchor = positive || zero;
+    return { text: out, caret: anchor ? anchor.pos : out.length };
+  }
+
+  function positionCompletion() {
+    if (!completionOpen) { return; }
+    const coords = caretCoords(); // viewport coordinates of the caret
+    const margin = 4;
+    const popupH = completionEl.offsetHeight;
+    const popupW = completionEl.offsetWidth;
+    let top = coords.top + coords.lineHeight; // below the caret line by default
+    if (top + popupH > window.innerHeight - margin && coords.top - popupH > margin) {
+      top = coords.top - popupH; // flip above when it would overflow the bottom
+    }
+    let left = coords.left;
+    if (left + popupW > window.innerWidth - margin) {
+      left = window.innerWidth - popupW - margin; // keep it on screen horizontally
+    }
+    completionEl.style.top = Math.max(margin, top) + 'px';
+    completionEl.style.left = Math.max(margin, left) + 'px';
+  }
+
+  // Measure the caret's viewport position via a hidden twin of the textarea:
+  // copy the text up to the caret, append a marker, read where it lands, then
+  // offset by the textarea's own position on screen. The mirror shares the
+  // textarea's font/padding/wrapping, so the marker tracks the real caret.
+  function caretCoords() {
+    const lineHeight = parseFloat(getComputedStyle(codeEl).lineHeight) || 18;
+    const rect = codeEl.getBoundingClientRect();
+    if (!mirrorEl) { return { top: rect.top, left: rect.left, lineHeight: lineHeight }; }
+    mirrorEl.textContent = codeEl.value.slice(0, codeEl.selectionStart);
+    const marker = document.createElement('span');
+    marker.textContent = '\u200b'; // zero-width space
+    mirrorEl.appendChild(marker);
+    const top = rect.top + marker.offsetTop - codeEl.scrollTop;
+    const left = rect.left + marker.offsetLeft - codeEl.scrollLeft;
+    mirrorEl.removeChild(marker);
+    return { top: top, left: left, lineHeight: lineHeight };
+  }
+
   window.addEventListener('message', event => {
     const msg = event.data;
     switch (msg.type) {
@@ -444,6 +648,13 @@
         state = { tabs: msg.tabs, activeTabId: msg.activeTabId };
         renderTabs();
         renderActiveCode();
+        if (!stateLoaded) {
+          stateLoaded = true;
+          codeEl.readOnly = false; // tabs are known now — safe to accept edits
+        }
+        break;
+      case 'snippets':
+        snippets = Array.isArray(msg.items) ? msg.items : [];
         break;
       case 'orgs':
         orgs = { orgs: msg.orgs, selected: msg.selected };

@@ -2,7 +2,7 @@
   "name": "apex-editor",
   "displayName": "Apex Editor",
   "description": "Multi-tab Apex editor for Salesforce with quick anonymous Apex execution against any authenticated org.",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "publisher": "Skrety",
   "license": "MIT",
   "repository": {
@@ -83,6 +83,42 @@
           "type": "boolean",
           "default": true,
           "description": "Show a confirmation dialog before running anonymous Apex against a production org (anonymous Apex executes immediately against live data)."
+        },
+        "apexEditor.customSnippets": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Your own code suggestions, added on top of the built-ins. Type a prefix in the editor and press Tab or Enter to insert. Use `$0` to mark where the caret lands; `$1` / `${1:placeholder}` also work (VS Code snippet syntax). A custom entry with the same `prefix` as a built-in overrides it.",
+          "items": {
+            "type": "object",
+            "required": [
+              "prefix",
+              "body"
+            ],
+            "properties": {
+              "prefix": {
+                "type": "string",
+                "description": "What you type to trigger the suggestion, e.g. \"sd\"."
+              },
+              "label": {
+                "type": "string",
+                "description": "Text shown in the popup (defaults to the prefix). Also matched as you type, so a label of \"System.debug\" is suggested when you type \"system\"."
+              },
+              "body": {
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "description": "The inserted text. A string (use \\n for newlines) or an array of lines. Use $0 for the caret position.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": {
+                "type": "string",
+                "description": "Optional hint shown to the right of the suggestion."
+              }
+            }
+          }
         }
       }
     }
