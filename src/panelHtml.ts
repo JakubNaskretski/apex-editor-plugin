@@ -103,6 +103,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       overflow: hidden;
     }
     #code-overlay,
+    #code-mirror,
     .editor textarea {
       position: absolute;
       inset: 0;
@@ -132,6 +133,53 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       caret-color: var(--vscode-editor-foreground);
       z-index: 1;
     }
+    /* Hidden twin of the textarea, used only to measure the caret's pixel
+       position for the suggestion popup (textareas don't expose that directly).
+       It shares the textarea's exact metrics via the selector list above, so a
+       marker placed at the caret offset lands in the right spot. Never shown. */
+    #code-mirror {
+      visibility: hidden;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 0;
+    }
+    /* Suggestion popup (snippet completions). Positioned at the caret from JS.
+       Uses position:fixed so the editor's overflow:hidden can't clip it. */
+    .completion {
+      position: fixed;
+      z-index: 5;
+      min-width: 160px;
+      max-width: 340px;
+      max-height: 180px;
+      overflow-y: auto;
+      background: var(--vscode-editorSuggestWidget-background, var(--vscode-editorWidget-background, #252526));
+      border: 1px solid var(--vscode-editorSuggestWidget-border, var(--vscode-widget-border, #454545));
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 12px;
+    }
+    .completion.hidden { display: none; }
+    .completion-item {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      padding: 2px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .completion-item.selected {
+      background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground, #04395e));
+      color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground, #ffffff));
+    }
+    .completion-label { color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); }
+    .completion-item.selected .completion-label { color: inherit; }
+    .completion-desc {
+      margin-left: auto;
+      opacity: 0.7;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+    }
+    .completion-item.selected .completion-desc { color: inherit; }
     /* syntax token colors (VS Code Dark+ palette) */
     .tok-keyword { color: #569cd6; font-weight: 600; }
     .tok-type { color: #4ec9b0; }
@@ -240,30 +288,37 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
       padding: 4px 0;
     }
     .log-entry {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
       padding: 2px 8px;
       line-height: 1.4;
     }
     .log-entry:hover { background: var(--vscode-list-hoverBackground); }
-    .log-entry-meta {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
     .log-time {
       color: var(--vscode-descriptionForeground);
       font-size: 10px;
       margin-left: auto;
+      flex-shrink: 0;
     }
     .log-type {
       font-weight: 600;
       font-size: 11px;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
     .log-line {
       color: var(--vscode-descriptionForeground);
       font-size: 11px;
+      flex-shrink: 0;
     }
+    /* Message fills the rest of the row and wraps within its own column, so a
+       long debug line breaks onto multiple visual lines without pushing the
+       category label onto a line of its own. min-width:0 lets it actually shrink
+       inside the flex row instead of overflowing. */
     .log-msg {
-      padding-left: 8px;
+      flex: 1 1 0;
+      min-width: 0;
       word-break: break-word;
       white-space: pre-wrap;
       color: var(--vscode-foreground);
@@ -345,7 +400,9 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, 
   <div class="tabs" id="tabs"></div>
   <div class="editor">
     <pre id="code-overlay" aria-hidden="true"></pre>
+    <div id="code-mirror" aria-hidden="true"></div>
     <textarea id="code" spellcheck="false" placeholder="// Anonymous Apex&#10;System.debug('Hello from Apex Editor');"></textarea>
+    <div id="completion" class="completion hidden"></div>
   </div>
   <div class="output">
     <div class="output-header">

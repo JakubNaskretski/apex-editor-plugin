@@ -8,6 +8,9 @@ authenticated Salesforce org, in the bottom panel next to the Terminal.
 - **Multi-tab editor** — each tab keeps its own Apex source and persists across
   VS Code restarts (per workspace), with Apex syntax highlighting and Tab/Shift+Tab
   indentation.
+- **Snippet suggestions** — type a prefix (e.g. `sd` → `System.debug`) for an
+  inline completion popup; navigate with the arrow keys and insert with Tab or
+  Enter. Extend it with your own snippets via `apexEditor.customSnippets`.
 - **Org switcher** — pick any org already authenticated with the Salesforce CLI
   (`sf`); the default org is pre-selected on first launch.
 - **Production-run safeguard** — orgs are tagged prod/sandbox/scratch; a `[PROD]`
@@ -53,6 +56,8 @@ authenticated Salesforce org, in the bottom panel next to the Terminal.
 |---------|---------|-------------|
 | `apexEditor.executeTimeoutMs` | `60000` | Timeout (ms) for anonymous Apex execution. |
 | `apexEditor.apiVersion` | `60.0` | Salesforce API version for Tooling API calls. |
+| `apexEditor.confirmProductionRun` | `true` | Confirm before running against a production org. |
+| `apexEditor.customSnippets` | `[]` | Your own editor snippets, merged over the built-ins. |
 
 ## License
 
