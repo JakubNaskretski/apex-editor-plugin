@@ -5,10 +5,6 @@
   "version": "0.2.0",
   "publisher": "Skrety",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/JakubNaskretski/apex-editor-plugin"
-  },
   "galleryBanner": {
     "color": "#1e1e2e",
     "theme": "dark"
@@ -127,7 +123,8 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./ && node ./scripts/copy-panel-js.mjs",
     "watch": "tsc -watch -p ./",
-    "test": "vitest run"
+    "test": "vitest run",
+    "package": "npx -y @vscode/vsce@latest package --allow-missing-repository"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
