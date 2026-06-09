@@ -61,4 +61,4 @@ authenticated Salesforce org, in the bottom panel next to the Terminal.
 
 ## License
 
-[MIT](./LICENSE)
+MIT — see the bundled LICENSE file.
