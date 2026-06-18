@@ -3,6 +3,10 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.2.2
+
+- Add a branded extension icon — shown on the Marketplace listing and the editor panel.
+
 ## 0.2.1
 
 - Internal packaging and tooling cleanup. No functional changes.

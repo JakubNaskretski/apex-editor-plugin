@@ -2,8 +2,9 @@
   "name": "apex-editor",
   "displayName": "Apex Editor",
   "description": "Multi-tab Apex editor for Salesforce with quick anonymous Apex execution against any authenticated org.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "Skrety",
+  "icon": "plugin-icon.png",
   "license": "MIT",
   "galleryBanner": {
     "color": "#1e1e2e",
@@ -31,7 +32,7 @@
         {
           "id": "apex-editor-panel",
           "title": "Apex Editor",
-          "icon": "$(zap)"
+          "icon": "media/activitybar-icon.svg"
         }
       ]
     },
