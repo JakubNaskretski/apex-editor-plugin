@@ -6,6 +6,8 @@ import { generateNonce, getPanelHtml } from './panelHtml';
 import { parseLogs, parseLimitUsage } from './logParser';
 import { TraceService } from './traceService';
 import { mergeSnippets } from './snippets';
+import { validateMessage } from './kit/webviewHtml';
+import { pickOrg as kitPickOrg } from './kit/orgs';
 
 type InboundMessage =
   | { type: 'ready' }
@@ -31,9 +33,15 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   static readonly viewTypePanel = 'apexEditor.panelView';
   private view?: vscode.WebviewView;
   private orgs: OrgInfo[] = [];
+  private orgsLoaded = false;
   private readonly traceService: TraceService;
   private running = false;
   private currentAbort?: AbortController;
+
+  /** Fires with the currently-selected OrgInfo (or undefined) whenever the org
+   *  set or selection changes, so a status-bar indicator can track it. */
+  private readonly orgChangedEmitter = new vscode.EventEmitter<OrgInfo | undefined>();
+  readonly onOrgChanged = this.orgChangedEmitter.event;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -47,12 +55,31 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     this.traceService = new TraceService(sf);
     // Re-send the snippet dictionary to the webview whenever the user edits it.
     context.subscriptions.push(
+      this.orgChangedEmitter,
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('apexEditor.customSnippets')) {
           this.postSnippets();
         }
       })
     );
+  }
+
+  /** The OrgInfo for the currently-selected org, or undefined if unknown/unset.
+   *  Used to seed a status-bar indicator on activation. */
+  selectedOrgInfo(): OrgInfo | undefined {
+    const selected = this.orgStore.get();
+    return selected ? this.orgs.find(o => o.username === selected) : undefined;
+  }
+
+  /** Reload the org list, honouring an externally-changed shared org setting, and
+   *  refresh the webview + status bar. Call when another plugin switches the org. */
+  async refreshForExternalOrgChange(): Promise<void> {
+    if (!this.orgsLoaded) {
+      await this.loadOrgs();
+      return;
+    }
+    this.postOrgs();
+    this.orgChangedEmitter.fire(this.selectedOrgInfo());
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -67,43 +94,108 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     view.onDidDispose(() => { this.view = undefined; });
   }
 
-  async executeActive(): Promise<void> {
+  /** Execute the active tab against the selected org, with a production guard.
+   *  Callable from the panel (execute message) or the command palette — including
+   *  BEFORE the panel is ever opened, so it must not assume `this.orgs` is loaded
+   *  or that a webview exists to show results. */
+  async executeActive(source: 'panel' | 'command' = 'panel'): Promise<void> {
+    const active = this.tabs.getActive();
+    if (!active) {
+      vscode.window.showWarningMessage('Apex Editor: no active Apex tab to execute.');
+      return;
+    }
+    await this.runCode(active.code, source, 'Active tab is empty.');
+  }
+
+  /** P1: Execute the current text editor's Apex — the selection if there is one,
+   *  otherwise the whole document. Wired to a command gated on `.apex` files /
+   *  the apex language so it appears in the editor title bar and palette. */
+  async executeEditor(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('Apex Editor: open an Apex file to run.');
+      return;
+    }
+    const sel = editor.selection;
+    const code = sel && !sel.isEmpty ? editor.document.getText(sel) : editor.document.getText();
+    await this.runCode(code, 'command', 'The Apex file / selection is empty.');
+  }
+
+  /** Shared execution entry: busy-reserve, resolve + confirm the org, run. Used by
+   *  both the tab runner and the editor-file runner. `emptyMessage` is shown when
+   *  `code` is blank. */
+  private async runCode(code: string, source: 'panel' | 'command', emptyMessage: string): Promise<void> {
+    // Busy reservation: claim `running` synchronously, before the first await
+    // (org load / prod-confirm modal). Without this, a second invocation could
+    // slip past the guard while the first is parked on the modal, launching two
+    // concurrent runs that clobber `currentAbort`.
     if (this.running) {
       vscode.window.showInformationMessage('An Apex execution is already running.');
       return;
     }
-    const active = this.tabs.getActive();
-    if (!active) {
-      vscode.window.showWarningMessage('No active Apex tab to execute.');
-      return;
-    }
-    if (!active.code.trim()) {
-      vscode.window.showWarningMessage('Active tab is empty.');
-      return;
-    }
-    const selectedOrg = this.orgStore.get();
-    if (!selectedOrg) {
-      vscode.window.showWarningMessage('Select a Salesforce org first.');
-      return;
-    }
-
-    // Production safety: anonymous Apex executes immediately and can modify live
-    // data, send emails, and make callouts. Confirm before running against prod.
-    const orgInfo = this.orgs.find(o => o.username === selectedOrg);
-    const confirmProd = vscode.workspace.getConfiguration('apexEditor').get<boolean>('confirmProductionRun', true);
-    if (confirmProd && SfCliService.isLikelyProduction(orgInfo)) {
-      const label = orgInfo?.alias ?? selectedOrg;
-      const choice = await vscode.window.showWarningMessage(
-        `⚠ Run anonymous Apex against PRODUCTION (${label})?`,
-        { modal: true, detail: 'This executes immediately and can modify live data, send emails, and make callouts.' },
-        'Run on Production'
-      );
-      if (choice !== 'Run on Production') {
+    this.running = true;
+    let started = false;
+    try {
+      if (!code.trim()) {
+        this.warn(emptyMessage, source);
         return;
       }
-    }
 
-    await this.runApex(active.code, selectedOrg);
+      // Load the org list if it hasn't been loaded yet (palette / editor run
+      // before the panel opened). This is what closes the silent-skip bug: without
+      // it, `this.orgs` is empty, the selected org resolves to `undefined`, and
+      // the production guard is silently skipped. With the list loaded — or, if
+      // the load fails, still `undefined` ⇒ isLikelyProduction(undefined) === true
+      // — an unknown org now triggers the confirmation.
+      if (!this.orgsLoaded) {
+        await this.loadOrgs();
+      }
+
+      const selectedOrg = this.orgStore.get();
+      if (!selectedOrg) {
+        this.warn('Select a Salesforce org first.', source);
+        return;
+      }
+
+      // Production safety: anonymous Apex executes immediately and can modify live
+      // data, send emails, and make callouts. Confirm before running against prod.
+      // An org we couldn't classify (not in the loaded list) is treated as prod.
+      const orgInfo = this.orgs.find(o => o.username === selectedOrg);
+      const confirmProd = vscode.workspace.getConfiguration('apexEditor').get<boolean>('confirmProductionRun', true);
+      if (confirmProd && SfCliService.isLikelyProduction(orgInfo)) {
+        const label = orgInfo?.alias ?? selectedOrg;
+        const target = orgInfo ? `PRODUCTION (${label})` : `${label} — an unrecognized org (treated as PRODUCTION)`;
+        const choice = await vscode.window.showWarningMessage(
+          `⚠ Run anonymous Apex against ${target}?`,
+          { modal: true, detail: 'This executes immediately and can modify live data, send emails, and make callouts.' },
+          'Run on Production'
+        );
+        if (choice !== 'Run on Production') {
+          return;
+        }
+      }
+
+      started = true;
+      await this.runApex(code, selectedOrg, source);
+    } finally {
+      // runApex owns `running` (it clears it in its own finally once the run
+      // completes). For every early-return path that never reached runApex,
+      // release the reservation here so the UI doesn't stay stuck "busy".
+      if (!started) {
+        this.running = false;
+      }
+    }
+  }
+
+  /** Show a warning where the user will see it. When the palette fired this with
+   *  the panel closed, a webview post() is a no-op, so use a native notification. */
+  private warn(message: string, source: 'panel' | 'command'): void {
+    this.output.appendLine(`[exec] ${message}`);
+    if (source === 'command' || !this.view) {
+      vscode.window.showWarningMessage(`Apex Editor: ${message}`);
+    } else {
+      vscode.window.showWarningMessage(message);
+    }
   }
 
   async newTab(): Promise<void> {
@@ -111,16 +203,10 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   }
 
   async pickOrg(): Promise<void> {
-    if (this.orgs.length === 0) {
+    if (!this.orgsLoaded) {
       await this.loadOrgs();
     }
-    const items = this.orgs.map(org => ({
-      label: org.alias ? `${org.alias}` : org.username,
-      description: org.alias ? org.username : undefined,
-      detail: org.instanceUrl,
-      username: org.username
-    }));
-    if (items.length === 0) {
+    if (this.orgs.length === 0) {
       const choice = await vscode.window.showWarningMessage(
         'No authenticated Salesforce orgs found. Run `sf org login web` first.',
         'Refresh'
@@ -130,18 +216,32 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
       }
       return;
     }
-    const picked = await vscode.window.showQuickPick(items, {
+    // Kit picker: badges each org [PROD]/[SBX]/[SCR] and marks the current +
+    // CLI-default org — the family-canonical QuickPick.
+    const username = await kitPickOrg(this.orgs, {
       placeHolder: 'Select Salesforce org',
-      matchOnDescription: true,
-      matchOnDetail: true
+      current: this.orgStore.get()
     });
-    if (picked) {
-      await this.orgStore.set(picked.username);
-      this.postOrgs();
+    if (username) {
+      await this.setSelectedOrg(username);
     }
   }
 
-  private async handleMessage(message: InboundMessage): Promise<void> {
+  /** Persist a newly-chosen org and refresh the webview + status bar. Writing
+   *  through OrgStore updates the family-shared setting, so every SF plugin
+   *  follows the switch. */
+  private async setSelectedOrg(username: string): Promise<void> {
+    await this.orgStore.set(username);
+    this.postOrgs();
+    this.orgChangedEmitter.fire(this.selectedOrgInfo());
+  }
+
+  private async handleMessage(raw: unknown): Promise<void> {
+    // Shape-guard inbound webview messages before trusting their fields (REVIEW
+    // §5 LOW: "inbound webview messages shape-unvalidated"). A message that fails
+    // its per-type descriptor is dropped.
+    if (!validateMessage<{ type: string }>({ type: 'string' }, raw)) { return; }
+    const message = raw as InboundMessage;
     switch (message.type) {
       case 'ready':
         // Send tab state FIRST so the editor is wired up immediately. Loading
@@ -154,29 +254,33 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
         await this.loadOrgs();
         return;
       case 'updateCode':
+        if (!validateMessage({ tabId: 'string', code: 'string' }, message)) { return; }
         this.tabs.updateCode(message.tabId, message.code);
         return;
       case 'newTab':
         this.tabs.createTab();
         return;
       case 'closeTab':
+        if (!validateMessage({ tabId: 'string' }, message)) { return; }
         this.tabs.closeTab(message.tabId);
         return;
       case 'selectTab':
+        if (!validateMessage({ tabId: 'string' }, message)) { return; }
         this.tabs.setActive(message.tabId);
         return;
       case 'renameTab':
+        if (!validateMessage({ tabId: 'string', title: 'string' }, message)) { return; }
         this.tabs.renameTab(message.tabId, message.title);
         return;
       case 'selectOrg':
-        await this.orgStore.set(message.username);
-        this.postOrgs();
+        if (!validateMessage({ username: 'string' }, message)) { return; }
+        await this.setSelectedOrg(message.username);
         return;
       case 'refreshOrgs':
         await this.loadOrgs(true);
         return;
       case 'execute':
-        await this.executeActive();
+        await this.executeActive('panel');
         return;
       case 'cancel':
         this.currentAbort?.abort();
@@ -193,6 +297,7 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
   private async loadOrgs(notifyOnEmpty = false): Promise<void> {
     try {
       this.orgs = await this.sf.listOrgs();
+      this.orgsLoaded = true;
       const current = this.orgStore.get();
       if (current && !this.orgs.some(o => o.username === current)) {
         await this.orgStore.set(undefined);
@@ -203,10 +308,13 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
         }
       }
       this.postOrgs();
+      this.orgChangedEmitter.fire(this.selectedOrgInfo());
       if (notifyOnEmpty && this.orgs.length === 0) {
         vscode.window.showWarningMessage('No authenticated Salesforce orgs found.');
       }
     } catch (err) {
+      // Leave orgsLoaded false so a later attempt retries; the run guard still
+      // treats the unresolved org as production (unknown ⇒ prod) in the meantime.
       const message = err instanceof Error ? err.message : String(err);
       this.output.appendLine(`[orgs] Failed to load: ${message}`);
       if (err instanceof SfCliError && err.stderr) {
@@ -216,19 +324,34 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async runApex(code: string, username: string): Promise<void> {
+  private async runApex(code: string, username: string, source: 'panel' | 'command' = 'panel'): Promise<void> {
     const config = vscode.workspace.getConfiguration('apexEditor');
     const timeout = config.get<number>('executeTimeoutMs', 60_000);
     const apiVersion = config.get<string>('apiVersion', '60.0');
     const controller = new AbortController();
     this.running = true;
     this.currentAbort = controller;
+    // If the run was launched from the palette with the panel closed, the webview
+    // posts are no-ops and the user would see nothing at all
+    // (palette run with panel closed is completely silent). Surface progress and
+    // the outcome through the output channel in that case.
+    const headless = !this.view;
+    if (headless) {
+      this.output.show(true);
+    }
     this.post({ type: 'execStart' });
     this.output.appendLine(`[exec] Running anonymous Apex against ${username}...`);
     const start = Date.now();
     const cmd = `sf apex run --target-org ${username}`;
     try {
-      await this.traceService.ensureTraceFlag(username, apiVersion);
+      await this.traceService.ensureTraceFlag(username, apiVersion, {
+        signal: controller.signal,
+        timeoutMs: timeout,
+        onWarn: msg => {
+          this.output.appendLine(`[trace] ${msg}`);
+          vscode.window.showWarningMessage(`Apex Editor: ${msg}`);
+        }
+      });
       const result = await this.sf.executeAnonymous(code, username, timeout, controller.signal);
       const durationMs = Date.now() - start;
       this.output.appendLine(this.formatResult(result));
@@ -242,6 +365,9 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
         type: 'cmdLog',
         entry: { timestamp: new Date().toLocaleTimeString(), command: cmd, durationMs, success: result.compiled && result.success }
       });
+      if (headless || source === 'command') {
+        this.notifyResult(result);
+      }
     } catch (err) {
       const durationMs = Date.now() - start;
       if (err instanceof SfCliCancelledError) {
@@ -254,6 +380,9 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
           this.output.appendLine(err.stderr);
         }
         this.post({ type: 'execError', message });
+        if (headless || source === 'command') {
+          vscode.window.showErrorMessage(`Apex Editor: execution failed — ${message}`);
+        }
       }
       this.post({
         type: 'cmdLog',
@@ -262,6 +391,18 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     } finally {
       this.running = false;
       this.currentAbort = undefined;
+    }
+  }
+
+  /** Native notification of a completed run — used when there is no visible panel
+   *  to render the result into (palette-launched, panel closed). */
+  private notifyResult(result: ApexExecuteResult): void {
+    if (!result.compiled) {
+      vscode.window.showErrorMessage(`Apex Editor: compile error at line ${result.line}: ${result.compileProblem}`);
+    } else if (!result.success) {
+      vscode.window.showErrorMessage(`Apex Editor: execution failed — ${result.exceptionMessage || 'unknown error'}`);
+    } else {
+      vscode.window.showInformationMessage('Apex Editor: execution succeeded. See the Apex Editor output for the debug log.');
     }
   }
 

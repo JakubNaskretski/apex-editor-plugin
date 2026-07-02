@@ -1,20 +1,14 @@
-import { spawn } from 'child_process';
 import * as os from 'os';
+import { SfCliService as KitSfCliService, SfCliError, SfCliCancelledError } from './kit/sfCli';
+import type { OrgInfo } from './kit/sfCli';
+import { kindOf, isLikelyProduction, type OrgKind } from './kit/orgs';
 
-export interface OrgInfo {
-  username: string;
-  alias?: string;
-  orgId: string;
-  instanceUrl: string;
-  isDefaultUsername?: boolean;
-  isDefaultDevHubUsername?: boolean;
-  connectedStatus?: string;
-  /** Tagged from the `sf org list` bucket the org came from. */
-  isSandbox?: boolean;
-  isScratch?: boolean;
-}
-
-export type OrgKind = 'prod' | 'sandbox' | 'scratch' | 'other';
+// Re-export the kit types/classes the rest of the plugin imports from here, so
+// adopting the kit didn't ripple import paths across the codebase. `OrgKind`'s
+// unknown-bucket is now 'unknown' (was 'other') — the root fix:
+// an org we can't classify counts as PRODUCTION for the run guard.
+export { SfCliError, SfCliCancelledError };
+export type { OrgInfo, OrgKind };
 
 export interface ApexExecuteResult {
   success: boolean;
@@ -35,89 +29,39 @@ export interface OrgDetails {
   alias?: string;
 }
 
-export class SfCliError extends Error {
-  constructor(message: string, public readonly stderr?: string, public readonly cause?: unknown) {
-    super(message);
-    this.name = 'SfCliError';
-  }
-}
-
-export class SfCliCancelledError extends SfCliError {
+/**
+ * Apex-editor's Salesforce CLI facade. The spawn/timeout/JSON plumbing (and the
+ * Windows `sf.cmd` resolution fix) now lives in the shared kit `SfCliService`;
+ * this subclass keeps only the two apex-specific commands (`org display` for the
+ * Tooling access token, `apex run` for anonymous execution) and re-surfaces the
+ * org classification helpers as statics for call-site compatibility.
+ */
+export class SfCliService extends KitSfCliService {
   constructor() {
-    super('Execution cancelled');
-    this.name = 'SfCliCancelledError';
-  }
-}
-
-interface RunOptions {
-  timeoutMs?: number;
-  stdin?: string;
-  signal?: AbortSignal;
-}
-
-interface RunResult {
-  stdout: string;
-  stderr: string;
-  code: number;
-}
-
-export class SfCliService {
-  private readonly defaultTimeoutMs = 60_000;
-
-  async getOrgDetails(targetOrg: string): Promise<OrgDetails> {
-    const json = await this.runJson<{ result: OrgDetails }>(
-      ['org', 'display', '--target-org', targetOrg, '--json']
-    );
-    return json.result;
+    // Keep apex-editor's historical 60s default (the family kit defaults to 180s
+    // for slower deploy/retrieve work); anonymous Apex is interactive and short.
+    super({ defaultTimeoutMs: 60_000 });
   }
 
-  async listOrgs(): Promise<OrgInfo[]> {
-    const result = await this.runJson<{
-      result: {
-        nonScratchOrgs?: OrgInfo[];
-        scratchOrgs?: OrgInfo[];
-        sandboxes?: OrgInfo[];
-        other?: OrgInfo[];
-      };
-    }>(['org', 'list', '--json']);
-
-    const buckets = result.result ?? {};
-    // Merge by username, tagging scratch/sandbox from the bucket each org came from
-    // (the most reliable signal) so production can be detected for the run guard.
-    const byUser = new Map<string, OrgInfo>();
-    const add = (orgs: OrgInfo[] | undefined, extra: Partial<OrgInfo>): void => {
-      for (const o of orgs ?? []) {
-        if (!o?.username) { continue; }
-        const prev = byUser.get(o.username) ?? ({} as OrgInfo);
-        byUser.set(o.username, {
-          ...prev,
-          ...o,
-          isSandbox: extra.isSandbox || o.isSandbox || prev.isSandbox,
-          isScratch: extra.isScratch || o.isScratch || prev.isScratch
-        });
-      }
-    };
-    add(buckets.nonScratchOrgs, {});
-    add(buckets.scratchOrgs, { isScratch: true });
-    add(buckets.sandboxes, { isSandbox: true });
-    add(buckets.other, {});
-    return [...byUser.values()];
-  }
-
-  /** Production unless we can tell it's a sandbox/scratch. Errs toward "prod"
-   *  (over-warn) so a live run isn't fired silently against a production org. */
+  /** Production unless we can positively tell it's a sandbox/scratch. Unknown
+   *  (undefined) orgs count as production — over-warn. Delegates to kit orgs.ts. */
   static kindOf(org: OrgInfo | undefined): OrgKind {
-    if (!org) { return 'other'; }
-    if (org.isScratch) { return 'scratch'; }
-    if (org.isSandbox) { return 'sandbox'; }
-    const url = (org.instanceUrl ?? '').toLowerCase();
-    if (/\.scratch\./.test(url)) { return 'scratch'; }
-    if (/\.sandbox\.|\.cs\d+\.|test\.salesforce\.com/.test(url)) { return 'sandbox'; }
-    return 'prod';
+    return kindOf(org);
   }
 
   static isLikelyProduction(org: OrgInfo | undefined): boolean {
-    return SfCliService.kindOf(org) === 'prod';
+    return isLikelyProduction(org);
+  }
+
+  async getOrgDetails(targetOrg: string): Promise<OrgDetails> {
+    const json = await this.runJson<{ result?: OrgDetails; status?: number; name?: string; message?: string }>(
+      ['org', 'display', '--target-org', targetOrg, '--json']
+    );
+    if (!json.result) {
+      const msg = json.name || json.message || `sf org display returned no result (status ${json.status ?? '?'})`;
+      throw new SfCliError(String(msg));
+    }
+    return json.result;
   }
 
   async executeAnonymous(apexCode: string, targetOrg: string, timeoutMs?: number, signal?: AbortSignal): Promise<ApexExecuteResult> {
@@ -127,109 +71,23 @@ export class SfCliService {
     const tmpFile = path.join(tmpDir, 'script.apex');
     try {
       await fs.writeFile(tmpFile, apexCode, 'utf8');
-      const json = await this.runJson<{ result?: ApexExecuteResult; status?: number }>(
+      // `apex run` returns a populated `result` even on a non-zero status
+      // (compile errors / uncaught exceptions carry the structured payload we
+      // render), so we DON'T use the envelope-unwrapping runResult() here — we
+      // want the result regardless of status and only fail when it's absent.
+      const json = await this.runJson<{ result?: ApexExecuteResult; status?: number; name?: string; message?: string }>(
         ['apex', 'run', '--file', tmpFile, '--target-org', targetOrg, '--json'],
         { timeoutMs, signal }
       );
       if (!json.result) {
-        throw new SfCliError('sf apex run returned no result payload');
+        // No structured result means a CLI-level failure (bad/expired org, bad
+        // project) rather than a compile error — surface the envelope message.
+        const msg = json.name || json.message || 'sf apex run returned no result payload';
+        throw new SfCliError(String(msg));
       }
       return json.result;
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
     }
-  }
-
-  private async runJson<T>(args: string[], options: RunOptions = {}): Promise<T> {
-    const { stdout, stderr, code } = await this.run(args, options);
-    if (/\bENOENT\b/.test(stderr) || /spawn sf\b/i.test(stderr)) {
-      throw new SfCliError('Salesforce CLI (sf) not found on PATH. Install it and reload VS Code.', stderr);
-    }
-    const trimmed = stdout.trim();
-    if (!trimmed) {
-      throw new SfCliError(`sf ${args.join(' ')} produced no output (exit ${code})`, stderr);
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch (err) {
-      throw new SfCliError(`Failed to parse JSON from sf ${args.join(' ')}`, stderr, err);
-    }
-    // `sf --json` writes an error envelope ({status!=0, message/name}) to stdout
-    // even on failure — surface it instead of returning it as a success result.
-    // BUT some commands (notably `apex run`) return a populated `result` even on a
-    // non-zero status (compile errors / uncaught exceptions); the caller needs that
-    // structured payload, so only treat the envelope as a hard failure when there
-    // is no `result` to interpret.
-    const env = parsed as { status?: number; message?: unknown; name?: unknown; result?: unknown };
-    const hasResult = env && env.result !== undefined && env.result !== null;
-    if (env && typeof env.status === 'number' && env.status !== 0 && !hasResult) {
-      const msg = (typeof env.message === 'string' && env.message)
-        || (typeof env.name === 'string' && env.name)
-        || `sf ${args.join(' ')} failed (status ${env.status})`;
-      throw new SfCliError(String(msg), stderr);
-    }
-    if (code !== 0 && !hasResult && (!env || env.status === undefined)) {
-      throw new SfCliError(`sf ${args.join(' ')} exited with code ${code}`, stderr);
-    }
-    return parsed as T;
-  }
-
-  private run(args: string[], options: RunOptions = {}): Promise<RunResult> {
-    return new Promise((resolve, reject) => {
-      if (options.signal?.aborted) {
-        reject(new SfCliCancelledError());
-        return;
-      }
-      const child = spawn('sf', args, { shell: false });
-      let settled = false;
-      const timeout = setTimeout(() => {
-        if (settled) { return; }
-        settled = true;
-        child.kill('SIGTERM');
-        reject(new SfCliError(`sf ${args.join(' ')} timed out after ${options.timeoutMs ?? this.defaultTimeoutMs}ms`));
-      }, options.timeoutMs ?? this.defaultTimeoutMs);
-
-      // User-initiated cancellation: kill the child and reject distinctly so the
-      // caller can show "Cancelled" rather than a scary error.
-      const onAbort = (): void => {
-        if (settled) { return; }
-        settled = true;
-        clearTimeout(timeout);
-        child.kill('SIGTERM');
-        reject(new SfCliCancelledError());
-      };
-      options.signal?.addEventListener('abort', onAbort, { once: true });
-
-      // Collect raw Buffers and decode once so multi-byte UTF-8 sequences split
-      // across stream chunks (common in large debug logs) aren't corrupted.
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
-      child.stdout.on('data', chunk => { stdoutChunks.push(Buffer.from(chunk)); });
-      child.stderr.on('data', chunk => { stderrChunks.push(Buffer.from(chunk)); });
-
-      child.on('error', err => {
-        if (settled) { return; }
-        settled = true;
-        clearTimeout(timeout);
-        reject(new SfCliError(`Failed to launch sf CLI: ${(err as Error).message}`, undefined, err));
-      });
-
-      child.on('close', code => {
-        if (settled) { return; }
-        settled = true;
-        clearTimeout(timeout);
-        resolve({
-          stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-          stderr: Buffer.concat(stderrChunks).toString('utf8'),
-          code: code ?? -1
-        });
-      });
-
-      if (options.stdin) {
-        child.stdin.write(options.stdin);
-        child.stdin.end();
-      }
-    });
   }
 }
