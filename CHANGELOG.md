@@ -3,6 +3,20 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.3.0
+
+- Run Apex straight from the editor: execute the current `.apex` file or just
+  the selected lines (editor title button + keybinding).
+- Safer runs: unrecognized orgs are treated as production and always ask for
+  confirmation; results are shown even when the panel is closed.
+- Status-bar org indicator with a PROD badge; Run / New Tab buttons in the
+  panel title bar.
+- The selected org is now shared with the other Skrety Salesforce extensions —
+  switch once, it applies everywhere.
+- Fixes: cancel and timeout now cover debug-log setup; no more double runs from
+  a stacked confirmation dialog; undo works after Tab-indent and snippet
+  insert; sf CLI detection on Windows.
+
 ## 0.2.2
 
 - Add a branded extension icon — shown on the Marketplace listing and the editor panel.
