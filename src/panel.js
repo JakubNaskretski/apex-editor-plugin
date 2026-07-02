@@ -76,7 +76,7 @@
 
   let state = { tabs: [], activeTabId: null };
   let orgs = { orgs: [], selected: null };
-  let selectedKind = 'other';
+  let selectedKind = 'unknown';
   let suppressCodeEvent = false;
   let isRunning = false;
   // The id of the tab the textarea currently reflects. Used to tell a real tab
@@ -150,7 +150,9 @@
       runBtn.classList.remove('danger');
       return;
     }
-    const isProd = selectedKind === 'prod';
+    // Tint the Run button when the target is production OR unclassified (unknown
+    // ⇒ treated as prod by the guard), so the standing warning matches the modal.
+    const isProd = selectedKind === 'prod' || selectedKind === 'unknown';
     runBtn.classList.toggle('danger', isProd);
     runBtn.title = isProd ? 'Execute on PRODUCTION' : 'Execute active script';
   }
@@ -446,6 +448,34 @@
     }
   });
 
+  // Replace a [start,end) range of the textarea with `text`, preferring
+  // document.execCommand('insertText') so the browser's native undo stack is
+  // preserved (a direct `.value =` write wipes it). Falls back to
+  // a `.value` splice if execCommand is unavailable or refused.
+  function replaceRange(start, end, text) {
+    codeEl.focus();
+    codeEl.setSelectionRange(start, end);
+    // Suppress our own `input` handler for the duration of the edit: execCommand
+    // fires a native input event, and we already post updateCode explicitly below
+    // (double-posting is harmless but re-triggering the completion popup on an
+    // indent/accept is not). The native undo stack is still recorded by
+    // execCommand regardless of this flag.
+    suppressCodeEvent = true;
+    let ok = false;
+    try {
+      ok = document.execCommand('insertText', false, text);
+    } catch (_e) { ok = false; }
+    if (!ok) {
+      const v = codeEl.value;
+      codeEl.value = v.slice(0, start) + text + v.slice(end);
+      const caret = start + text.length;
+      try { codeEl.setSelectionRange(caret, caret); } catch (_e) { /* ignore */ }
+    }
+    suppressCodeEvent = false;
+    highlightApex();
+    if (state.activeTabId) { post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value }); }
+  }
+
   function insertIndent(dedent) {
     const indent = '  ';
     const start = codeEl.selectionStart;
@@ -457,14 +487,10 @@
       const lead = value.slice(lineStart, start);
       const remove = lead.endsWith('  ') ? 2 : (lead.endsWith(' ') || lead.endsWith('\t')) ? 1 : 0;
       if (remove === 0) { return; }
-      codeEl.value = value.slice(0, start - remove) + value.slice(start);
-      codeEl.selectionStart = codeEl.selectionEnd = start - remove;
+      replaceRange(start - remove, start, '');
     } else {
-      codeEl.value = value.slice(0, start) + indent + value.slice(end);
-      codeEl.selectionStart = codeEl.selectionEnd = start + indent.length;
+      replaceRange(start, end, indent);
     }
-    highlightApex();
-    if (state.activeTabId) { post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value }); }
   }
 
   function focusErrorLocation(line, column) {
@@ -567,17 +593,13 @@
     const range = currentTokenRange;
     if (!item || !range) { closeCompletion(); return; }
     const expanded = expandSnippet(item.body != null ? item.body : (item.label || item.prefix));
-    const before = codeEl.value.slice(0, range.start);
-    const after = codeEl.value.slice(range.end);
-    suppressCodeEvent = true;
-    codeEl.value = before + expanded.text + after;
-    suppressCodeEvent = false;
+    // Replace the typed token with the expanded snippet through the native undo
+    // path (replaceRange uses execCommand('insertText')), then place the caret at
+    // the snippet's tab-stop.
+    replaceRange(range.start, range.end, expanded.text);
     const caretPos = range.start + expanded.caret;
-    codeEl.focus();
     try { codeEl.setSelectionRange(caretPos, caretPos); } catch (_e) { /* ignore */ }
-    highlightApex();
     closeCompletion();
-    if (state.activeTabId) { post({ type: 'updateCode', tabId: state.activeTabId, code: codeEl.value }); }
   }
 
   // Substitute ${n:placeholder} → its text, drop $n / ${n} / $0 markers, and
@@ -658,7 +680,7 @@
         break;
       case 'orgs':
         orgs = { orgs: msg.orgs, selected: msg.selected };
-        selectedKind = msg.selectedKind || 'other';
+        selectedKind = msg.selectedKind || 'unknown';
         renderOrgs();
         break;
       case 'execStart':

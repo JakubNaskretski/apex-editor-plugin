@@ -52,6 +52,11 @@
         "icon": "$(play)"
       },
       {
+        "command": "apexEditor.executeEditor",
+        "title": "Apex: Run Current File / Selection as Anonymous Apex",
+        "icon": "$(play)"
+      },
+      {
         "command": "apexEditor.selectOrg",
         "title": "Apex: Select Org"
       },
@@ -59,6 +64,47 @@
         "command": "apexEditor.newTab",
         "title": "Apex: New Script Tab",
         "icon": "$(add)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "apexEditor.execute",
+          "when": "view == apexEditor.panelView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "apexEditor.newTab",
+          "when": "view == apexEditor.panelView",
+          "group": "navigation@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "apexEditor.executeEditor",
+          "when": "editorLangId == apex || resourceExtname == .apex",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "apexEditor.executeEditor",
+          "when": "editorLangId == apex || resourceExtname == .apex"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "apexEditor.execute",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "focusedView == apexEditor.panelView"
+      },
+      {
+        "command": "apexEditor.executeEditor",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "editorTextFocus && (editorLangId == apex || resourceExtname == .apex)"
       }
     ],
     "configuration": {
