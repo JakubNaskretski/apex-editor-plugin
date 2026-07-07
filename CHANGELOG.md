@@ -3,6 +3,13 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.3.1
+
+- Fixed: **No more silent failures.** A panel click or a command (run, org pick, new tab)
+  that hit an error could previously do nothing at all, with no message anywhere. Every
+  failure now shows an error notification with a **Show Output** button and is logged to
+  the output channel.
+
 ## 0.3.0
 
 - Run Apex straight from the editor: execute the current `.apex` file or just

@@ -90,7 +90,17 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     };
     view.webview.html = getPanelHtml(view.webview, this.context.extensionUri, generateNonce(), this.location);
 
-    view.webview.onDidReceiveMessage((message: InboundMessage) => this.handleMessage(message));
+    // Never let a handler rejection vanish — a click that dies in an unhandled
+    // promise looks like the panel ignoring the user, with no trace anywhere.
+    view.webview.onDidReceiveMessage((message: InboundMessage) => {
+      void this.handleMessage(message).catch(err => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.output.appendLine(`[${(message as { type?: string })?.type ?? 'panel message'}] ${msg}`);
+        void vscode.window.showErrorMessage(`Apex Editor: ${msg}`, 'Show Output').then(choice => {
+          if (choice === 'Show Output') this.output.show(true);
+        });
+      });
+    });
     view.onDidDispose(() => { this.view = undefined; });
   }
 

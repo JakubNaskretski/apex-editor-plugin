@@ -40,11 +40,25 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerWebviewViewProvider(ApexPanelProvider.viewTypePanel, provider, {
       webviewOptions: { retainContextWhenHidden: true }
     }),
-    vscode.commands.registerCommand('apexEditor.execute', () => provider.executeActive('command')),
-    vscode.commands.registerCommand('apexEditor.executeEditor', () => provider.executeEditor()),
-    vscode.commands.registerCommand('apexEditor.selectOrg', () => provider.pickOrg()),
-    vscode.commands.registerCommand('apexEditor.newTab', () => provider.newTab())
+    registerSafe('apexEditor.execute', () => provider.executeActive('command')),
+    registerSafe('apexEditor.executeEditor', () => provider.executeEditor()),
+    registerSafe('apexEditor.selectOrg', () => provider.pickOrg()),
+    registerSafe('apexEditor.newTab', () => provider.newTab())
   );
+
+  // A rejected command handler (e.g. the org pick failing to save the shared
+  // setting) is otherwise an unhandled rejection the user never sees.
+  function registerSafe(id: string, fn: () => Promise<unknown> | void): vscode.Disposable {
+    return vscode.commands.registerCommand(id, () => {
+      void Promise.resolve(fn()).catch(err => {
+        const msg = err instanceof Error ? err.message : String(err);
+        output.appendLine(`[${id}] ${msg}`);
+        void vscode.window.showErrorMessage(`Apex Editor: ${msg}`, 'Show Output').then(choice => {
+          if (choice === 'Show Output') output.show(true);
+        });
+      });
+    });
+  }
 }
 
 export function deactivate(): void {
