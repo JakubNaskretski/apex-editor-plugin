@@ -304,7 +304,25 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async loadOrgs(notifyOnEmpty = false): Promise<void> {
+  /** Shared in-flight org load. The config watcher, webview `ready`, the run
+   *  commands and the org picker can all request a load at the same moment —
+   *  without this each spawned its own `sf org list`, and a losing duplicate
+   *  could toast a spurious "failed to list orgs" next to a populated list. */
+  private loadOrgsInflight?: Promise<void>;
+
+  private loadOrgs(notifyOnEmpty = false): Promise<void> {
+    const inflight = this.loadOrgsInflight;
+    if (inflight) {
+      // Joining a silent load must not swallow an explicit refresh's warning.
+      if (!notifyOnEmpty) return inflight;
+      return inflight.then(() => {
+        if (this.orgs.length === 0) vscode.window.showWarningMessage('No authenticated Salesforce orgs found.');
+      });
+    }
+    return this.loadOrgsInflight = this.doLoadOrgs(notifyOnEmpty).finally(() => { this.loadOrgsInflight = undefined; });
+  }
+
+  private async doLoadOrgs(notifyOnEmpty: boolean): Promise<void> {
     try {
       this.orgs = await this.sf.listOrgs();
       this.orgsLoaded = true;

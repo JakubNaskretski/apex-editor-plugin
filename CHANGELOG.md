@@ -3,6 +3,13 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.3.2
+
+- Fixed: **One org lookup at a time.** Opening the panel, running code and switching the
+  shared org in another Skrety plugin could each spawn their own `sf org list` at the same
+  moment — and a losing duplicate could flash a spurious "failed to list orgs" error even
+  though the list loaded fine. Concurrent callers now share a single in-flight lookup.
+
 ## 0.3.1
 
 - Fixed: **No more silent failures.** A panel click or a command (run, org pick, new tab)
