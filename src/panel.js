@@ -131,6 +131,7 @@
     }
     orgSelect.disabled = false;
     runBtn.disabled = false;
+    let matched = false;
     for (const org of orgs.orgs) {
       const opt = document.createElement('option');
       opt.value = org.username;
@@ -138,8 +139,21 @@
         : org.kind === 'sandbox' ? ' [SBX]'
         : org.kind === 'scratch' ? ' [SCR]' : '';
       opt.textContent = org.label + badge;
-      if (org.username === orgs.selected) { opt.selected = true; }
+      if (org.username === orgs.selected) { opt.selected = true; matched = true; }
       orgSelect.appendChild(opt);
+    }
+    // No option matched the shared setting — an external clear (selected == null),
+    // so show an explicit none-state instead of letting the <select> silently
+    // display the first org as if it were the target (the status bar shows "No
+    // Org"; the dropdown must agree). A missing-but-named org doesn't reach here:
+    // the extension appends a stand-in option for it.
+    if (!matched) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = orgs.selected ? orgs.selected : 'Select an org…';
+      opt.disabled = true;
+      orgSelect.insertBefore(opt, orgSelect.firstChild);
+      opt.selected = true;
     }
     applyRunButtonKind();
   }
@@ -281,13 +295,17 @@
     outputStatus.className = cls || '';
   }
 
-  function renderExecResult(result) {
+  function renderExecResult(result, org) {
+    // Attribute the outcome to the org it ran against — captured when the run
+    // started, so a switch made mid-run doesn't mislabel the result under the new
+    // org now showing in the dropdown/status bar.
+    const on = org ? ` · ${org}` : '';
     if (!result.compiled) {
-      setStatus(`Compile error at line ${result.line}: ${result.compileProblem}`, 'status-err');
+      setStatus(`Compile error at line ${result.line}: ${result.compileProblem}${on}`, 'status-err');
     } else if (!result.success) {
-      setStatus(`Failed: ${result.exceptionMessage || 'unknown error'}`, 'status-err');
+      setStatus(`Failed: ${result.exceptionMessage || 'unknown error'}${on}`, 'status-err');
     } else {
-      setStatus('Success', 'status-ok');
+      setStatus(`Success${on}`, 'status-ok');
     }
     const parts = [];
     if (result.exceptionMessage) { parts.push(`Exception: ${result.exceptionMessage}`); }
@@ -694,7 +712,7 @@
         break;
       case 'execResult':
         setRunning(false);
-        renderExecResult(msg.result);
+        renderExecResult(msg.result, msg.org);
         lastRawLog = (msg.result && msg.result.logs) || '';
         currentLogEntries = msg.logEntries || [];
         renderLogEntries();

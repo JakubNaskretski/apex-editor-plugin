@@ -3,6 +3,15 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.3.3
+
+- Fixed: **Org switches made in sibling Skrety plugins render honestly.** The dropdown and
+  status bar now show the actual target even when it wasn't in the cached list (newly
+  authenticated orgs included), an externally cleared org shows a real "Select an org…"
+  state instead of silently displaying the first option, and execution results are labeled
+  with the org they ran against. Reacting to another plugin's switch never rewrites the
+  shared org setting anymore, and a flaky empty org listing can no longer clear it.
+
 ## 0.3.2
 
 - Fixed: **One org lookup at a time.** Opening the panel, running code and switching the

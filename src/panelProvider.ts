@@ -64,18 +64,44 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     );
   }
 
-  /** The OrgInfo for the currently-selected org, or undefined if unknown/unset.
-   *  Used to seed a status-bar indicator on activation. */
+  /** The OrgInfo for the currently-selected org, or undefined when the shared
+   *  setting is unset. When the setting names an org that isn't in the loaded list
+   *  — authenticated in a sibling after we cached ours, the list not loaded yet
+   *  (activation), or its auth expired — fall back to a minimal OrgInfo carrying
+   *  just the username, so the status bar names the real target instead of showing
+   *  "No Org". kindOf() then reads no sandbox/scratch flags and classifies it PROD
+   *  — the family's over-warn default for an org we can't vouch for. Also seeds the
+   *  status-bar indicator on activation from the shared setting alone. (Family
+   *  pattern: sf-test-runner's minimal-OrgInfo fallback.) */
   selectedOrgInfo(): OrgInfo | undefined {
     const selected = this.orgStore.get();
-    return selected ? this.orgs.find(o => o.username === selected) : undefined;
+    if (!selected) return undefined;
+    return this.orgs.find(o => o.username === selected) ?? this.minimalOrg(selected);
   }
 
-  /** Reload the org list, honouring an externally-changed shared org setting, and
-   *  refresh the webview + status bar. Call when another plugin switches the org. */
+  /** Stand-in OrgInfo for a username we can't resolve to a full listing entry.
+   *  Alias mirrors the username (family convention) so every label falls back to
+   *  it cleanly. */
+  private minimalOrg(username: string): OrgInfo {
+    return { username, alias: username };
+  }
+
+  /** Honour an externally-changed shared org setting and refresh the webview +
+   *  status bar. Call when another plugin (or the user editing settings.json)
+   *  switches the org. Reacting to someone else's switch must NEVER write the
+   *  shared setting, so every load here runs in no-write mode (reconcile:false) —
+   *  otherwise an externally-cleared org would be resurrected as the CLI default,
+   *  or a just-set org cleared, only because we reacted. */
   async refreshForExternalOrgChange(): Promise<void> {
-    if (!this.orgsLoaded) {
-      await this.loadOrgs();
+    const username = this.orgStore.get();
+    // Reload when we've never loaded, or when the switched-to org isn't in our
+    // cached list (authenticated in a sibling after we cached ours) — the reload
+    // resolves its kind and gives the dropdown a real option to select. If it's
+    // still missing afterwards, postOrgs/selectedOrgInfo fall back to a minimal
+    // entry so both surfaces still name it. Otherwise the list is current: just
+    // re-post and refresh the status bar.
+    if (!this.orgsLoaded || (username && !this.orgs.some(o => o.username === username))) {
+      await this.loadOrgs(false, { reconcile: false });
       return;
     }
     this.postOrgs();
@@ -310,7 +336,7 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
    *  could toast a spurious "failed to list orgs" next to a populated list. */
   private loadOrgsInflight?: Promise<void>;
 
-  private loadOrgs(notifyOnEmpty = false): Promise<void> {
+  private loadOrgs(notifyOnEmpty = false, opts: { reconcile?: boolean } = {}): Promise<void> {
     const inflight = this.loadOrgsInflight;
     if (inflight) {
       // Joining a silent load must not swallow an explicit refresh's warning.
@@ -319,20 +345,35 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
         if (this.orgs.length === 0) vscode.window.showWarningMessage('No authenticated Salesforce orgs found.');
       });
     }
-    return this.loadOrgsInflight = this.doLoadOrgs(notifyOnEmpty).finally(() => { this.loadOrgsInflight = undefined; });
+    // reconcile defaults on: the activation/first-load path reconciles (and may
+    // write) the shared setting. The external-change watcher passes false so its
+    // load never writes it. A load already in flight is shared as-is.
+    return this.loadOrgsInflight = this.doLoadOrgs(notifyOnEmpty, opts.reconcile ?? true)
+      .finally(() => { this.loadOrgsInflight = undefined; });
   }
 
-  private async doLoadOrgs(notifyOnEmpty: boolean): Promise<void> {
+  private async doLoadOrgs(notifyOnEmpty: boolean, reconcile = true): Promise<void> {
     try {
       this.orgs = await this.sf.listOrgs();
       this.orgsLoaded = true;
-      const current = this.orgStore.get();
-      if (current && !this.orgs.some(o => o.username === current)) {
-        await this.orgStore.set(undefined);
-      } else if (!current) {
-        const defaultOrg = this.orgs.find(o => o.isDefaultUsername) ?? this.orgs[0];
-        if (defaultOrg) {
-          await this.orgStore.set(defaultOrg.username);
+      // Reconcile the shared setting against the fresh list. This WRITES the
+      // setting, so it runs only on the activation/first-load path — the watcher
+      // passes reconcile:false (reacting to another plugin's switch must not write
+      // it). Family policy: only user picks and this seed-when-empty touch it.
+      if (reconcile) {
+        const current = this.orgStore.get();
+        // Clear only when the org is genuinely absent from a NON-EMPTY listing. An
+        // empty list means `sf org list` returned nothing (no auths yet, or a
+        // transient hiccup); clearing off that would wipe a valid selection. A
+        // thrown listing rejects at the await above and lands in catch, so it can
+        // never reach this clear.
+        if (current && this.orgs.length > 0 && !this.orgs.some(o => o.username === current)) {
+          await this.orgStore.set(undefined);
+        } else if (!current) {
+          const defaultOrg = this.orgs.find(o => o.isDefaultUsername) ?? this.orgs[0];
+          if (defaultOrg) {
+            await this.orgStore.set(defaultOrg.username);
+          }
         }
       }
       this.postOrgs();
@@ -359,6 +400,10 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     const controller = new AbortController();
     this.running = true;
     this.currentAbort = controller;
+    // Pin the org's display label NOW, before the first await. An external switch
+    // mid-run repaints the dropdown/status bar to the new org; capturing the label
+    // here keeps the result attributed to the org it actually ran against.
+    const orgLabel = this.orgs.find(o => o.username === username)?.alias ?? username;
     // If the run was launched from the palette with the panel closed, the webview
     // posts are no-ops and the user would see nothing at all
     // (palette run with panel closed is completely silent). Surface progress and
@@ -385,6 +430,7 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
       this.output.appendLine(this.formatResult(result));
       this.post({
         type: 'execResult',
+        org: orgLabel,
         result,
         logEntries: parseLogs(result.logs),
         limits: parseLimitUsage(result.logs)
@@ -465,12 +511,22 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
 
   private postOrgs(): void {
     const selected = this.orgStore.get() ?? null;
-    const selectedOrg = selected ? this.orgs.find(o => o.username === selected) : undefined;
+    const selectedOrg = this.selectedOrgInfo();
+    // When the selected org isn't in the loaded list, selectedOrgInfo() returns a
+    // minimal stand-in. Append it so the dropdown has a real <option> to show as
+    // selected — without it the browser falls back to displaying the FIRST org as
+    // if it were the target. (On the reconcile path a missing org is cleared before
+    // we get here, so this stand-in only appears on the external-switch route.)
+    const list = selectedOrg && !this.orgs.some(o => o.username === selectedOrg.username)
+      ? [...this.orgs, selectedOrg]
+      : this.orgs;
     const payload: OrgsPayload = {
-      orgs: this.orgs.map(o => ({
+      orgs: list.map(o => ({
         username: o.username,
         alias: o.alias,
-        label: o.alias ? `${o.alias} (${o.username})` : o.username,
+        // Skip the "alias (username)" form when they're equal (e.g. the minimal
+        // stand-in) so it doesn't render as "user (user)".
+        label: o.alias && o.alias !== o.username ? `${o.alias} (${o.username})` : o.username,
         kind: SfCliService.kindOf(o)
       })),
       selected,
