@@ -3,6 +3,12 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.3.4
+
+- Fixed: **Windows support.** The `sf` CLI now launches on Windows — recent VS Code
+  builds refused to start the `sf.cmd` launcher — and a run that ignores cancellation
+  is force-killed after a few seconds instead of lingering forever.
+
 ## 0.3.3
 
 - Fixed: **Org switches made in sibling Skrety plugins render honestly.** The dropdown and
