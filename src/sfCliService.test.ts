@@ -18,7 +18,7 @@ const { vscodeMock } = vi.hoisted(() => ({
 }));
 vi.mock('vscode', () => vscodeMock);
 
-import { SfCliService, OrgInfo } from './sfCliService';
+import { SfCliService, OrgInfo, SfCliError } from './sfCliService';
 
 const org = (o: Partial<OrgInfo>): OrgInfo => ({
   username: 'u@example.com', orgId: '00D', instanceUrl: '', ...o
@@ -50,5 +50,36 @@ describe('SfCliService.kindOf / isLikelyProduction', () => {
     // classifies an unclassifiable org as 'unknown' and counts it as production.
     expect(SfCliService.kindOf(undefined)).toBe('unknown');
     expect(SfCliService.isLikelyProduction(undefined)).toBe(true);
+  });
+});
+
+describe('SfCliService.executeAnonymous failure payload', () => {
+  const withEnvelope = (envelope: unknown) => {
+    const svc = new SfCliService();
+    vi.spyOn(svc as unknown as { runJson: () => Promise<unknown> }, 'runJson')
+      .mockResolvedValue(envelope);
+    return svc;
+  };
+
+  it('returns the payload under `data` on a thrown runtime failure (no `result`)', async () => {
+    // `apex run --json` THROWS on a runtime failure, so the payload lands under
+    // `data` with name `executeRuntimeFailure` and there is no `result`. We must
+    // render it, not surface the bare error name.
+    const svc = withEnvelope({
+      status: 1,
+      name: 'executeRuntimeFailure',
+      message: 'Execution failed at this code:\n\nSystem.NullPointerException',
+      data: { success: false, compiled: true, exceptionMessage: 'boom', exceptionStackTrace: 'AnonymousBlock: line 1', logs: 'USER_DEBUG' }
+    });
+    const result = await svc.executeAnonymous('x;', 'u@example.com');
+    expect(result.compiled).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.exceptionMessage).toBe('boom');
+  });
+
+  it('throws the envelope message (not the terse name) when neither result nor data is present', async () => {
+    const svc = withEnvelope({ status: 1, name: 'NoOrgFound', message: 'No default environment found.' });
+    await expect(svc.executeAnonymous('x;', 'u@example.com')).rejects.toThrow(SfCliError);
+    await expect(svc.executeAnonymous('x;', 'u@example.com')).rejects.toThrow('No default environment found.');
   });
 });

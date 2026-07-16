@@ -3,6 +3,13 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.3.5
+
+- Fixed: **Failed runs show the real error again.** When anonymous Apex compiled but threw
+  at runtime — or failed to compile — the panel surfaced a bare status code like
+  `executeRuntimeFailure` instead of the actual exception message, stack trace and debug
+  log. Failures now render their full detail, just like a successful run.
+
 ## 0.3.4
 
 - Fixed: **Windows support.** The `sf` CLI now launches on Windows — recent VS Code

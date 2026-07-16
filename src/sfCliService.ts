@@ -71,21 +71,27 @@ export class SfCliService extends KitSfCliService {
     const tmpFile = path.join(tmpDir, 'script.apex');
     try {
       await fs.writeFile(tmpFile, apexCode, 'utf8');
-      // `apex run` returns a populated `result` even on a non-zero status
-      // (compile errors / uncaught exceptions carry the structured payload we
-      // render), so we DON'T use the envelope-unwrapping runResult() here — we
-      // want the result regardless of status and only fail when it's absent.
-      const json = await this.runJson<{ result?: ApexExecuteResult; status?: number; name?: string; message?: string }>(
+      // On success `apex run --json` returns the payload under `result`. On a
+      // compile OR runtime failure it THROWS an SfError, so the same structured
+      // payload (exceptionMessage/stack/compileProblem/logs) lands under `data`
+      // with name `executeCompileFailure`/`executeRuntimeFailure` — there is no
+      // `result`. We render either, so a thrown failure flows back through the
+      // normal success=false / compiled=false path instead of surfacing as a
+      // bare error name. runJson already returns the parsed envelope on non-zero
+      // exit, so we DON'T use the envelope-unwrapping runResult() here.
+      const json = await this.runJson<{ result?: ApexExecuteResult; data?: ApexExecuteResult; status?: number; name?: string; message?: string }>(
         ['apex', 'run', '--file', tmpFile, '--target-org', targetOrg, '--json'],
         { timeoutMs, signal }
       );
-      if (!json.result) {
-        // No structured result means a CLI-level failure (bad/expired org, bad
-        // project) rather than a compile error — surface the envelope message.
-        const msg = json.name || json.message || 'sf apex run returned no result payload';
+      const payload = json.result ?? json.data;
+      if (!payload) {
+        // Neither result nor data means a CLI-level failure (bad/expired org,
+        // bad project) with nothing structured to render — surface the envelope
+        // message (which carries detail), falling back to the terse name.
+        const msg = json.message || json.name || 'sf apex run returned no result payload';
         throw new SfCliError(String(msg));
       }
-      return json.result;
+      return payload;
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
     }
