@@ -3,6 +3,14 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.4.0
+
+- Added: **Your org is now your own.** Switching the org in Apex Editor no longer switches
+  it in the other Skrety Salesforce extensions, and their switches no longer move yours.
+  Prefer the old shared behavior? Turn on `apexEditor.syncOrgWithFamily` (off by default) —
+  it takes effect immediately, follows the shared org and publishes your picks to it. On the
+  first start after updating you keep the org you were already using.
+
 ## 0.3.5
 
 - Fixed: **Failed runs show the real error again.** When anonymous Apex compiled but threw

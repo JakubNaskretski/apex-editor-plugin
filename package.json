@@ -2,7 +2,7 @@
   "name": "apex-editor",
   "displayName": "Apex Editor",
   "description": "Multi-tab Apex editor for Salesforce with quick anonymous Apex execution against any authenticated org.",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "publisher": "Skrety",
   "icon": "plugin-icon.png",
   "license": "MIT",
@@ -121,6 +121,12 @@
           "type": "string",
           "default": "60.0",
           "description": "Salesforce API version used for Tooling API calls."
+        },
+        "apexEditor.syncOrgWithFamily": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "markdownDescription": "Follow and publish the Salesforce org shared across the Skrety SF plugins (`skrety.salesforce.targetOrg`). Off: this plugin keeps its own org and ignores switches made in sibling plugins."
         },
         "apexEditor.confirmProductionRun": {
           "type": "boolean",
