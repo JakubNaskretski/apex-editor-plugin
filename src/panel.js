@@ -142,7 +142,7 @@
       if (org.username === orgs.selected) { opt.selected = true; matched = true; }
       orgSelect.appendChild(opt);
     }
-    // No option matched the shared setting — an external clear (selected == null),
+    // No option matched the selected org — it was cleared (selected == null),
     // so show an explicit none-state instead of letting the <select> silently
     // display the first org as if it were the target (the status bar shows "No
     // Org"; the dropdown must agree). A missing-but-named org doesn't reach here:

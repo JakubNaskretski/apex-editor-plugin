@@ -10,9 +10,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const sf = new SfCliService();
   const tabs = new TabManager(context.workspaceState);
   const orgStore = new OrgStore(context.globalState);
-  // One-time migration: seed the family-shared org setting from this plugin's old
-  // private globalState key so an existing user keeps their selected org.
-  void orgStore.migrate();
   // Single view, registered in the bottom panel (next to Terminal). A previous
   // version registered the same provider in both the sidebar and the panel, which
   // caused the two webviews to diverge (org selection, run results and the command
@@ -31,9 +28,26 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     orgStatus.item,
     provider.onOrgChanged(org => orgStatus.update(org)),
-    // Follow org switches made by any other family plugin (shared setting).
-    onSharedOrgChange(() => { void provider.refreshForExternalOrgChange(); })
+    // Follow org switches made by any other family plugin — but only while
+    // `apexEditor.syncOrgWithFamily` is on. The flag is checked inside the
+    // handler, at event time, so toggling it needs no reload.
+    onSharedOrgChange(() => { void provider.followSharedOrgChange(); }),
+    // Turning sync ON adopts the family's current org right away (turning it off
+    // does nothing — we simply keep the org we already have).
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('apexEditor.syncOrgWithFamily')) {
+        void provider.followSharedOrgChange();
+      }
+    })
   );
+
+  // Activation reconciliation: one-time adoption of the shared org (the private
+  // key lay dormant while the family shared setting owned the choice), plus the
+  // follow-the-family startup step when sync is on. Neither writes the shared
+  // setting. Refresh the panel + status bar if the effective org changed.
+  void orgStore.migrate()
+    .then(changed => (changed ? provider.refreshAfterMigration() : undefined))
+    .catch(err => output.appendLine(`[orgs] Migration failed: ${err instanceof Error ? err.message : String(err)}`));
 
   context.subscriptions.push(
     output,

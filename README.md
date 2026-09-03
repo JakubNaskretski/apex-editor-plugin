@@ -58,6 +58,7 @@ authenticated Salesforce org, in the bottom panel next to the Terminal.
 | `apexEditor.apiVersion` | `60.0` | Salesforce API version for Tooling API calls. |
 | `apexEditor.confirmProductionRun` | `true` | Confirm before running against a production org. |
 | `apexEditor.customSnippets` | `[]` | Your own editor snippets, merged over the built-ins. |
+| `apexEditor.syncOrgWithFamily` | `false` | Follow and publish the Salesforce org shared across the Skrety SF plugins (`skrety.salesforce.targetOrg`). Off: this plugin keeps its own org and ignores switches made in sibling plugins. |
 
 ## License
 

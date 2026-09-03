@@ -64,14 +64,14 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     );
   }
 
-  /** The OrgInfo for the currently-selected org, or undefined when the shared
-   *  setting is unset. When the setting names an org that isn't in the loaded list
+  /** The OrgInfo for the currently-selected org, or undefined when this plugin has
+   *  no org stored. When the stored org isn't in the loaded list
    *  — authenticated in a sibling after we cached ours, the list not loaded yet
    *  (activation), or its auth expired — fall back to a minimal OrgInfo carrying
    *  just the username, so the status bar names the real target instead of showing
    *  "No Org". kindOf() then reads no sandbox/scratch flags and classifies it PROD
    *  — the family's over-warn default for an org we can't vouch for. Also seeds the
-   *  status-bar indicator on activation from the shared setting alone. (Family
+   *  status-bar indicator on activation from the stored username alone. (Family
    *  pattern: sf-test-runner's minimal-OrgInfo fallback.) */
   selectedOrgInfo(): OrgInfo | undefined {
     const selected = this.orgStore.get();
@@ -86,12 +86,37 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     return { username, alias: username };
   }
 
-  /** Honour an externally-changed shared org setting and refresh the webview +
-   *  status bar. Call when another plugin (or the user editing settings.json)
-   *  switches the org. Reacting to someone else's switch must NEVER write the
-   *  shared setting, so every load here runs in no-write mode (reconcile:false) —
-   *  otherwise an externally-cleared org would be resurrected as the CLI default,
-   *  or a just-set org cleared, only because we reacted. */
+  /** React to a change of the family-shared org setting OR of the sync toggle
+   *  itself. Both are evaluated at event time (never at registration), so turning
+   *  `apexEditor.syncOrgWithFamily` on or off takes effect without a reload:
+   *  `adoptShared()` no-ops while sync is off, and adopts on the first event after
+   *  it is switched on. The echo of our own published pick is de-duped there too
+   *  (shared already equals ours), so this only refreshes on a real change. */
+  async followSharedOrgChange(): Promise<void> {
+    if (!(await this.orgStore.adoptShared())) return;
+    await this.refreshForExternalOrgChange();
+  }
+
+  /** Activation-path refresh, used after `migrate()` changed our stored org. It
+   *  must NOT go through refreshForExternalOrgChange(): that one loads in no-write
+   *  mode, and the webview's later `ready` load would join the same in-flight
+   *  promise — skipping the single activation reconciliation (stale org cleared /
+   *  CLI default auto-selected) for the whole session. Reconciling here is safe:
+   *  it only ever writes our own key, never the family-shared setting. */
+  async refreshAfterMigration(): Promise<void> {
+    if (!this.orgsLoaded) {
+      await this.loadOrgs();
+      return;
+    }
+    this.postOrgs();
+    this.orgChangedEmitter.fire(this.selectedOrgInfo());
+  }
+
+  /** Refresh the webview + status bar after the selected org changed underneath
+   *  us (adopted from the family, or migrated on activation). Such a change must
+   *  NEVER write the shared setting, so every load here runs in no-write mode
+   *  (reconcile:false) — otherwise an externally-cleared org would be resurrected
+   *  as the CLI default, or a just-set org cleared, only because we reacted. */
   async refreshForExternalOrgChange(): Promise<void> {
     const username = this.orgStore.get();
     // Reload when we've never loaded, or when the switched-to org isn't in our
@@ -253,7 +278,9 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
       return;
     }
     // Kit picker: badges each org [PROD]/[SBX]/[SCR] and marks the current +
-    // CLI-default org — the family-canonical QuickPick.
+    // CLI-default org — the family-canonical QuickPick. `current` MUST be passed
+    // explicitly: the kit defaults it to the family-shared org, which is not ours
+    // when sync is off.
     const username = await kitPickOrg(this.orgs, {
       placeHolder: 'Select Salesforce org',
       current: this.orgStore.get()
@@ -263,11 +290,13 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  /** Persist a newly-chosen org and refresh the webview + status bar. Writing
-   *  through OrgStore updates the family-shared setting, so every SF plugin
-   *  follows the switch. */
+  /** Persist a user-chosen org and refresh the webview + status bar. `publish`
+   *  marks it as user-initiated: OrgStore writes our own key either way, and
+   *  additionally updates the family-shared setting when
+   *  `apexEditor.syncOrgWithFamily` is on, so sibling SF plugins follow the
+   *  switch. The change event fires here regardless of the toggle. */
   private async setSelectedOrg(username: string): Promise<void> {
-    await this.orgStore.set(username);
+    await this.orgStore.set(username, { publish: true });
     this.postOrgs();
     this.orgChangedEmitter.fire(this.selectedOrgInfo());
   }
@@ -346,7 +375,7 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
       });
     }
     // reconcile defaults on: the activation/first-load path reconciles (and may
-    // write) the shared setting. The external-change watcher passes false so its
+    // rewrite) our stored org. The external-change watcher passes false so its
     // load never writes it. A load already in flight is shared as-is.
     return this.loadOrgsInflight = this.doLoadOrgs(notifyOnEmpty, opts.reconcile ?? true)
       .finally(() => { this.loadOrgsInflight = undefined; });
@@ -356,10 +385,11 @@ export class ApexPanelProvider implements vscode.WebviewViewProvider {
     try {
       this.orgs = await this.sf.listOrgs();
       this.orgsLoaded = true;
-      // Reconcile the shared setting against the fresh list. This WRITES the
-      // setting, so it runs only on the activation/first-load path — the watcher
-      // passes reconcile:false (reacting to another plugin's switch must not write
-      // it). Family policy: only user picks and this seed-when-empty touch it.
+      // Reconcile our stored org against the fresh list. This WRITES our own key,
+      // so it runs only on the activation/first-load path — the watcher passes
+      // reconcile:false (reacting to another plugin's switch must not rewrite the
+      // selection). It never touches the family-shared setting: only a
+      // user-initiated pick publishes, and only while sync is on.
       if (reconcile) {
         const current = this.orgStore.get();
         // Clear only when the org is genuinely absent from a NON-EMPTY listing. An
