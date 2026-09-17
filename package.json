@@ -2,7 +2,7 @@
   "name": "apex-editor",
   "displayName": "Apex Editor",
   "description": "Multi-tab Apex editor for Salesforce with quick anonymous Apex execution against any authenticated org.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "Skrety",
   "icon": "plugin-icon.png",
   "license": "MIT",
@@ -64,6 +64,11 @@
         "command": "apexEditor.newTab",
         "title": "Apex: New Script Tab",
         "icon": "$(add)"
+      },
+      {
+        "command": "apexEditor.help",
+        "title": "Apex: How It Works",
+        "icon": "$(question)"
       }
     ],
     "menus": {
@@ -77,6 +82,11 @@
           "command": "apexEditor.newTab",
           "when": "view == apexEditor.panelView",
           "group": "navigation@2"
+        },
+        {
+          "command": "apexEditor.help",
+          "when": "view == apexEditor.panelView",
+          "group": "navigation@9"
         }
       ],
       "editor/title": [

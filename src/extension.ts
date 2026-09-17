@@ -57,7 +57,8 @@ export function activate(context: vscode.ExtensionContext): void {
     registerSafe('apexEditor.execute', () => provider.executeActive('command')),
     registerSafe('apexEditor.executeEditor', () => provider.executeEditor()),
     registerSafe('apexEditor.selectOrg', () => provider.pickOrg()),
-    registerSafe('apexEditor.newTab', () => provider.newTab())
+    registerSafe('apexEditor.newTab', () => provider.newTab()),
+    registerSafe('apexEditor.help', () => help(context))
   );
 
   // A rejected command handler (e.g. the org pick failing to save the shared
@@ -72,6 +73,32 @@ export function activate(context: vscode.ExtensionContext): void {
         });
       });
     });
+  }
+}
+
+// The "?" in the panel title: a short plain-text guide (a modal's detail renders no markdown).
+async function help(context: vscode.ExtensionContext): Promise<void> {
+  const HELP = `1. Open the Apex Editor tab in the bottom panel, next to Terminal.
+2. Pick an org in the dropdown — any org authenticated with the sf CLI.
+3. Write anonymous Apex in a tab and press Run (or Cmd/Ctrl+Enter inside the panel).
+4. Results, limits and the debug log appear below; filter the log by category.
+5. + opens another tab; tabs are saved per workspace. Type a snippet prefix, then Tab.
+6. In an Apex file (.apex or the Apex language) Cmd/Ctrl+Alt+R runs the file, or just the selection.
+7. Orgs tagged [PROD], and any org it can't classify, ask for confirmation first (apexEditor.confirmProductionRun).
+
+Needs the Salesforce CLI (sf) on your PATH with at least one authenticated org.`;
+  const choice = await vscode.window.showInformationMessage('Apex Editor', { modal: true, detail: HELP }, 'Open README');
+  if (choice === 'Open README') {
+    // vsce ships the file as readme.md while the dev host has README.md: open whichever exists
+    for (const name of ['readme.md', 'README.md']) {
+      const uri = vscode.Uri.joinPath(context.extensionUri, name);
+      try {
+        await vscode.workspace.fs.stat(uri);
+        await vscode.commands.executeCommand('markdown.showPreview', uri);
+        return;
+      } catch { /* try the other spelling */ }
+    }
+    void vscode.window.showWarningMessage('README not found in the extension folder.');
   }
 }
 

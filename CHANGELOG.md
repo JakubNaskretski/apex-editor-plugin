@@ -3,6 +3,10 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.5.0
+
+- **?** in the Apex Editor panel title opens a short guide: picking an org, running a tab or an Apex file, reading results and the log, and what asks for confirmation. **Open README** in it shows the full documentation.
+
 ## 0.4.0
 
 - Added: **Your org is now your own.** Switching the org in Apex Editor no longer switches
