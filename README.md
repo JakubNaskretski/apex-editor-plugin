@@ -49,6 +49,8 @@ authenticated Salesforce org, in the bottom panel next to the Terminal.
 | `Apex: Execute Active Script` | Run the current tab against the selected org. |
 | `Apex: Select Org` | Quick-pick an authenticated org. |
 | `Apex: New Script Tab` | Open a new empty tab. |
+| `Apex: Run Current File / Selection as Anonymous Apex` | Run the open Apex file (`.apex`, or any file in the Apex language), or just the selection, against the selected org. |
+| `Apex: How It Works` | The **?** in the panel title: a short usage guide with a link to this README. |
 
 ## Settings
 
