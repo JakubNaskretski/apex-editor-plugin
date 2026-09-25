@@ -12,7 +12,8 @@ authenticated Salesforce org, in the bottom panel next to the Terminal.
   inline completion popup; navigate with the arrow keys and insert with Tab or
   Enter. Extend it with your own snippets via `apexEditor.customSnippets`.
 - **Org switcher** — pick any org already authenticated with the Salesforce CLI
-  (`sf`); the default org is pre-selected on first launch.
+  (`sf`); the default org is pre-selected on first launch. The selected org is
+  remembered per VS Code window (workspace), so two windows can target two orgs.
 - **Production-run safeguard** — orgs are tagged prod/sandbox/scratch; a `[PROD]`
   badge and a confirmation dialog guard against accidentally running against a
   production org (toggle with `apexEditor.confirmProductionRun`).
@@ -60,7 +61,7 @@ authenticated Salesforce org, in the bottom panel next to the Terminal.
 | `apexEditor.apiVersion` | `60.0` | Salesforce API version for Tooling API calls. |
 | `apexEditor.confirmProductionRun` | `true` | Confirm before running against a production org. |
 | `apexEditor.customSnippets` | `[]` | Your own editor snippets, merged over the built-ins. |
-| `apexEditor.syncOrgWithFamily` | `false` | Follow and publish the Salesforce org shared across the Skrety SF plugins (`skrety.salesforce.targetOrg`). Off: this plugin keeps its own org and ignores switches made in sibling plugins. |
+| `apexEditor.syncOrgWithFamily` | `false` | Follow and publish the Salesforce org shared across the Skrety SF plugins (`skrety.salesforce.targetOrg`). Off: this plugin keeps its own org and ignores switches made in sibling plugins. The shared org is machine-wide, so with sync on every VS Code window follows the same org; with it off each window keeps its own. |
 
 ## License
 

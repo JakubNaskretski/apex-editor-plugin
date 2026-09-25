@@ -3,6 +3,16 @@
 All notable changes to the Apex Editor extension are documented here.
 This file starts at the current release; earlier history predates it.
 
+## 0.6.0
+
+- **Your org is now per window.** Each VS Code window remembers its own target org, so two
+  projects open side by side run Apex against two different orgs, and switching the org in
+  one window no longer moves the other. On the first start after updating every window
+  begins on the org Apex Editor last used on this machine, so nothing changes until you pick — check the
+  status bar in each window and pick once where it differs; from then on each window keeps
+  its choice. With `apexEditor.syncOrgWithFamily` on, the shared org is still machine-wide,
+  so all windows follow it together.
+
 ## 0.5.0
 
 - **?** in the Apex Editor panel title opens a short guide: picking an org, running a tab or an Apex file, reading results and the log, and what asks for confirmation. **Open README** in it shows the full documentation.

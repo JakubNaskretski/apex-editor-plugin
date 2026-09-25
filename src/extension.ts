@@ -9,7 +9,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Apex Editor');
   const sf = new SfCliService();
   const tabs = new TabManager(context.workspaceState);
-  const orgStore = new OrgStore(context.globalState);
+  // The org lives in workspaceState (per window); globalState only carries the
+  // once-per-install org-sync migration flag.
+  const orgStore = new OrgStore(context.workspaceState, context.globalState);
   // Single view, registered in the bottom panel (next to Terminal). A previous
   // version registered the same provider in both the sidebar and the panel, which
   // caused the two webviews to diverge (org selection, run results and the command
